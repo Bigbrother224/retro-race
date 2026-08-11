@@ -1,0 +1,15 @@
+# Build artifacts
+.build/
+*.dylib
+*.o
+*.so
+cores/*/src/board*.o
+
+# ROMs (user-owned content, never committed)
+app/Roms/
+*.nes
+*.bin
+
+# Temp
+.DS_Store
+cores/libretro-fceumm/
