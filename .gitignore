@@ -13,3 +13,4 @@ app/Roms/
 # Temp
 .DS_Store
 cores/libretro-fceumm/
+cores/libretro-snes9x/

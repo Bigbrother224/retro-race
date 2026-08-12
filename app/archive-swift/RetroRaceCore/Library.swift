@@ -35,12 +35,13 @@ public struct GameEntry: Identifiable, Hashable {
 
 /// Scans a folder for supported ROMs and hashes each file (local-only).
 public struct LocalLibrary {
-    /// Extensions mapped to a libretro core file name.
+    /// Extensions mapped to the core dylib path, relative to the cores dir.
     public static let supportedExtensions = [
-        "nes": "fceumm_libretro.dylib",
-        "fds": "fceumm_libretro.dylib",
+        "nes": "libretro-fceumm/fceumm_libretro.dylib",
+        "fds": "libretro-fceumm/fceumm_libretro.dylib",
         "snes": "snes9x_libretro.dylib",
         "sfc": "snes9x_libretro.dylib",
+        "smc": "snes9x_libretro.dylib",
         "gb": "gambatte_libretro.dylib",
         "gbc": "gambatte_libretro.dylib",
         "gen": "genesis_plus_gx_libretro.dylib",

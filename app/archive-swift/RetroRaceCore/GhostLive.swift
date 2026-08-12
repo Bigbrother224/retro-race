@@ -14,24 +14,12 @@ final class GhostTileExtractor: @unchecked Sendable {
         width = Int(frame.width)
         height = Int(frame.height)
         pitch = Int(frame.pitch)
-        let rowBytes = width * 4
-        rgba = [UInt8](repeating: 0, count: rowBytes * height)
-        let src = fb.assumingMemoryBound(to: UInt8.self)
-        rgba.withUnsafeMutableBufferPointer { dst in
-            for y in 0..<height {
-                let s = src + y * pitch
-                let d = dst.baseAddress! + y * rowBytes
-                for x in 0..<width {
-                    let b = s[x * 4 + 0]
-                    let g = s[x * 4 + 1]
-                    let r = s[x * 4 + 2]
-                    d[x * 4 + 0] = r
-                    d[x * 4 + 1] = g
-                    d[x * 4 + 2] = b
-                    d[x * 4 + 3] = 255
-                }
-            }
-        }
+        let layout = FramebufferLayout.current
+        rgba = convertFramebuffer(src: fb.assumingMemoryBound(to: UInt8.self),
+                                  width: width, height: height,
+                                  pitch: pitch,
+                                  bytesPerPixel: layout.bytesPerPixel,
+                                  format: layout.format)
     }
 
     /// Crops a RR_SHM_TILE_W x RR_SHM_TILE_H RGBA tile centred on (x, y),

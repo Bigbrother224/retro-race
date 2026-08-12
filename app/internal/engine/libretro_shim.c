@@ -1,4 +1,4 @@
-#include "include/CRetroRace/libretro_shim.h"
+#include <libretro_shim.h>
 
 #include <dlfcn.h>
 #include <stdbool.h>

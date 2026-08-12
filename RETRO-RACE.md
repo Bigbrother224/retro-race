@@ -6,7 +6,7 @@
 
 ## Vision
 
-Bring the retro gaming community back to life by turning local emulation into a modern social experience: launch a game in seconds, find your friends, race a stranger, see your opponent as a Ghost in the same level, climb trustworthy leaderboards, and join community events.
+Bring the retro gaming community back to life by turning local emulation into a modern social experience: launch a game in seconds, find your friends, race a stranger, see where your opponent is in the same level, climb trustworthy leaderboards, and join community events.
 
 The promise is not to remake the games. The promise is:
 
@@ -16,7 +16,7 @@ The product must be light like a retro tool, immediate like a console, and deep 
 
 ## What Retro Race is (resolved)
 
-Retro Race **is a light emulator frontend**: it embeds mature libretro cores (C libraries) inside a small native app — it is **not** a wrapper that depends on RetroArch being installed. "Not writing an emulator" means: we reuse mature cores instead of writing CPU/APU/graphics emulation from scratch. Retro Race owns the window, the framebuffer and the Ghost composition. This was the source of a past ambiguity ("layer beside the emulator" vs "embedded frontend"); the embedded frontend is the decision, and a RetroArch adapter (BSV + UDP NCI) is only a fallback backend for games where an embedded core is not satisfactory.
+Retro Race **is a light emulator frontend**: it embeds mature libretro cores (C libraries) inside a small native app — it is **not** a wrapper that depends on RetroArch being installed. "Not writing an emulator" means: we reuse mature cores instead of writing CPU/APU/graphics emulation from scratch. Retro Race owns the window and the framebuffer. This was the source of a past ambiguity ("layer beside the emulator" vs "embedded frontend"); the embedded frontend is the decision, and a RetroArch adapter (BSV + UDP NCI) is only a fallback backend for games where an embedded core is not satisfactory.
 
 ## Positioning
 
@@ -28,24 +28,24 @@ The core experience is a **parallel Race**:
 2. The client syncs a shared start state and a countdown.
 3. Players play the same segment in parallel, without modifying the game's logic.
 4. The opponent's inputs are relayed and replayed in a second local instance.
-5. The opponent's Ghost is composited into the game framebuffer.
+5. Each player sees the opponent's screen as a small live PiP window, plus a progress gauge.
 6. The first valid victory event wins the segment.
 7. Results feed history, rating, leaderboards and rivalries.
 
 ## Why now
 
-The pieces already exist separately: RetroArch provides netplay, RetroAchievements provides achievements and some ranking data, TASVideos proves input-replay viability, Speedrun.com structures communities, and Fightcade shows a specialized netplay can last. What's missing is a unified, simple, modern experience centered on **live Ghosts, segment races, and player discovery**.
+The pieces already exist separately: RetroArch provides netplay, RetroAchievements provides achievements and some ranking data, TASVideos proves input-replay viability, Speedrun.com structures communities, and Fightcade shows a specialized netplay can last. What's missing is a unified, simple, modern experience centered on **live opponent views, segment races, and player discovery**.
 
 ### Competitive landscape
 
 | Product / project | Strength | Main gap for Retro Race |
 | --- | --- | --- |
-| RetroArch | Cores, netplay, spectators | Technical UX, no clean live Ghost or guided competition |
-| RetroAchievements | Achievements, profiles, community, game data | No parallel Race or live Ghost |
+| RetroArch | Cores, netplay, spectators | Technical UX, no guided competition with live opponent view |
+| RetroAchievements | Achievements, profiles, community, game data | No parallel Race or live opponent view |
 | Speedrun.com | Mature community rules and leaderboards | No local launcher or built-in duels |
-| Fightcade | Very strong arcade netplay | Narrow scope, no per-segment campaigns or general Ghost |
+| Fightcade | Very strong arcade netplay | Narrow scope, no per-segment campaigns or general race layer |
 | TASVideos / BizHawk | Input replays and reproducibility | Expert tooling, no casual matchmaking |
-| Parsec / Steam Remote Play | Simple remote play | Generic streaming, no Ghost, arbitration or leaderboard |
+| Parsec / Steam Remote Play | Simple remote play | Generic streaming, no race, arbitration or leaderboard |
 | Antstream Arcade | Licensed catalog and challenges | Closed cloud model, not local-first |
 
 Differentiation is not "we support more consoles." It is the quality of the loop: **choose, start, see, beat, retry, share**.
@@ -54,11 +54,11 @@ Differentiation is not "we support more consoles." It is the quality of the loop
 
 ### 1. It is a parallel Race, not co-op
 
-Everyone plays the same segment locally. The opponent appears as a Ghost that cannot touch your enemies or alter the game's logic. The first valid victory event wins.
+Everyone plays the same segment locally. Each player sees the opponent's progress via a PiP window and a gauge, without altering the game's logic. The first valid victory event wins.
 
-### 2. Ghost is in-game, not a picture-in-picture
+### 2. The opponent is visible, not injected
 
-The Ghost is drawn in your game world, not in a small side window.
+During a Race, each player sees a **small live window of the opponent's screen** (picture-in-picture) plus a **progress gauge** (who is ahead). Nothing is injected into the game itself: no sprite, no ghost, no modification of the framebuffer. This is simpler and more universal than an in-game Ghost.
 
 ### 3. Local-first: inputs only, never video or ROMs
 
@@ -68,18 +68,17 @@ The network carries inputs, events and metadata — never a persistent video str
 
 Replaces the previous AI plan. **No real-time AI, no screen capture, no manual RAM profiling.**
 
-- **Embed two libretro cores** in a mini-frontend (the cores are mature C libraries — this is not writing an emulator). One process runs your game; a second silent process deterministically replays your opponent's inputs.
-- **Appearance comes free**: the Ghost process renders its own framebuffer via the libretro video callback. The client copies the region around the character position, tints it (race color, outline, opacity) and composites it. Zero segmentation, zero sprite sheets, zero memory addresses for appearance.
-- **Position via automatic calibration**: once per game (~a few seconds), run two instances of the same core with slightly different inputs, serialize state (save state) at the same frame, and compare the byte arrays. The bytes that differ are the player's state. The client then reads only 4–8 bytes per frame. The RetroAchievements database can seed this search.
+- **Embed libretro cores** in a mini-frontend (the cores are mature C libraries — this is not writing an emulator). Each player process runs its own core locally; a silent second process can replay inputs deterministically when needed (replay, verification).
+- **The framebuffer is the UI**: the libretro video callback exposes the raw framebuffer — that is what the player sees and what is shared (small, low-fps copy) for the picture-in-picture window. Zero segmentation, zero sprite sheets.
+- **Victory/end detection by screen change**: a big persistent framebuffer change (level clear, game over) signals the end of a segment — no per-game memory addresses needed.
 
 Real cost:
 
-- two embedded 8/16-bit cores ≈ a few % CPU on Apple Silicon;
-- no video rendering on the Ghost side (video callback → NULL);
-- inter-process communication of a few bytes per frame;
+- one embedded 8/16-bit core per player ≈ a few % CPU on Apple Silicon;
+- a small PiP frame copy per second ≈ negligible bandwidth;
 - a lighter app than a full RetroArch, no Electron.
 
-Remaining trade-off: one calibration of a few seconds per supported game, automated and versioned in a small JSON. If calibration fails for a game, it falls back to `Echo` (difference mask) or abstract trajectory — never a promise of an exact sprite.
+No per-game calibration required: position-based ghost rendering is gone. End detection uses screen changes, which works for every game out of the box.
 
 ### 5. Cross-platform: macOS + Windows from day one
 
@@ -87,13 +86,13 @@ Development happens on macOS; both are supported from the start, Linux later.
 
 ### 6. Games: 8/16-bit first
 
-NES, SNES, Game Boy, Game Boy Color, Genesis, and some deterministic GBA titles. PS1 starts in deferred/Echo Ghost; PS2 is out of the roadmap.
+NES, SNES, Game Boy, Game Boy Color, Genesis, and some deterministic GBA titles. PS1 and heavier systems come later; PS2 is out of the roadmap.
 
-### 7. Three Ghost render levels
+### 7. How the opponent is shown (simplified, wow first)
 
-- **Level 1 (main)**: embedded core + framebuffer + automatic calibration. Clean, readable, cheap.
-- **Level 2 (fallback)**: deterministic `Echo` (difference mask). Wider coverage, but enemies and HUD can appear as false Ghosts; must be labeled `Echo`, not a native Ghost.
-- **Level 3 (last resort)**: abstract trajectory — progress line, trajectory shadow, splits, opponent position in the zone, no exact sprite.
+- **Level 1 (main)**: picture-in-picture live window of the opponent's screen + progress gauge. Simple, universal, works for every game.
+- **Level 2 (upgrade)**: the PiP window gets a "replay the last 10 seconds" button and the end-of-race slow-motion dramatization (slow-mo + name + time + side-by-side replay of the last seconds).
+- **Level 3 (later, optional)**: any in-game representation (ghost, trajectory) — explicitly NOT part of the MVP; only revisit if PiP proves not exciting enough.
 
 ### 8. ROMs and BIOS stay local
 
@@ -109,11 +108,11 @@ Pragmatic anti-cheat: lock speed, pause, rewind, frame-advance and savestates fo
 
 ### 10. Competition formats
 
-- **Live 1v1 duel** (flagship): simultaneous start, live Ghost, first valid event wins.
-- **Async Ghost challenge** (retention): challenge an existing time, Ghost replayed locally, publish even if the rival is offline.
+- **Live 1v1 duel** (flagship): simultaneous start, live PiP of the opponent + progress gauge, first valid end event wins.
+- **Async challenge** (retention): challenge an existing time, the opponent's run is replayed (deterministic) to compare, publish even if the rival is offline.
 - **Segment races**: ordered segments; one point per win; `first to 3`, `full run`, `instant rematch`.
 - **Random matchmaking**: a queue per game/category and a `Surprise Me` queue limited to locally owned compatible content; to avoid infinite waits, propose a list of three compatible games instead of forcing an unexpected one.
-- **Tournaments & seasons**: weekly cup on one game, monthly multi-game event, season with divisions, community challenge against a reference Ghost, anniversary race around a console or series. Seasons reward participation and progression, not only top players.
+- **Tournaments & seasons**: weekly cup on one game, monthly multi-game event, season with divisions, community challenge against a reference run, anniversary race around a console or series. Seasons reward participation and progression, not only top players.
 
 ### 11. Social, not voice
 
@@ -127,37 +126,34 @@ Options: free client with a limited community service, subscription for advanced
 
 ### Client (native desktop)
 
-- lightweight native launcher (Swift/SwiftUI or Rust), macOS and Windows;
+- lightweight native launcher (Swift/SwiftUI), macOS and Windows;
 - **embedded libretro mini-frontend** (cores are mature C libraries);
-- separate silent Ghost process replaying inputs, publishing position + sprite region via shared memory (a few bytes per frame);
-- automatic calibration by save-state diff, seeded by RetroAchievements;
-- transparent click-through overlay window for the Ghost;
-- GPU renderer for overlay and composition;
-- unified input manager;
+- one process per player running the core, rendering the framebuffer via the video callback;
+- a small live PiP window of the opponent's screen (low-fps framebuffer copy) + a progress gauge;
+- unified input manager (keyboard + gamepad, merged into one state);
 - recorder/replayer reusing native core formats first;
-- Game Profile manager;
+- Game Profile manager (per-game: hashes, core, start state, end-of-segment rules);
 - local cache of metadata and replays;
 - signed client and core updates;
 - **alternate backend**: RetroArch adapter (BSV + UDP Network Control Interface) for games where an embedded core is not satisfactory.
 
-The architecture keeps a clear boundary so the embedded core can be swapped for RetroArch, BizHawk or Mesen without changing the Race model, and the calibration can be swapped without touching the rest.
+The architecture keeps a clear boundary so the embedded core can be swapped for RetroArch, BizHawk or Mesen without changing the Race model, and the end detection can be swapped without touching the rest.
 
 ### Runtime shape during a Race
 
 ```text
-Player process A
+Player process A (you)
    ├─ libretro core A: your game, visible, your controller
    ├─ libretro video callback → framebuffer A (no screen capture)
-   └─ composites the Ghost: tinted region of B over frame A
+   └─ shows framebuffer B (opponent) as a small live PiP window + gauge
 
-Ghost process B (silent)
+Player process B (opponent)
    ├─ libretro core B: same ROM, same core, same start state
-   ├─ replays B's inputs (deterministic)
-   ├─ video callback → NULL (renders nothing, minimal CPU)
-   └─ publishes position + sprite region via shared memory (few bytes/frame)
+   ├─ runs B's inputs (live or replayed deterministically)
+   └─ sends a low-fps copy of its framebuffer for the PiP window
 ```
 
-The Ghost process never receives a network video stream: it receives the input replay and plays it back locally. The gameplay of A never depends on B's state; the Ghost can lag a few frames without making the game unplayable.
+The gameplay of A never depends on B's state; the PiP window can lag or drop frames without making the game unplayable.
 
 ### Determinism requirements
 
@@ -466,16 +462,15 @@ If this loop isn't fun with three games, adding fifty consoles won't solve anyth
 ### Gameplay
 
 - **Race** — a competition where several players locally run the same segment from a common start and try to finish first. *Avoid: co-op, netplay match, shared session.*
-- **Ghost** — the in-game representation of another player, produced from their replayed inputs or race state. It never acts on the local game or modifies its logic. *Avoid: network avatar, split-screen, streaming.*
+- **Écran partagé (PiP)** — a small live window of the opponent's screen shown during a Race; nothing is injected into the local game. *Avoid: ghost, in-game sprite, framebuffer modification.*
+- **Jauge de course** — the progress gauge comparing both players' position in the segment (who is ahead). *Avoid: opponent sprite, in-game position.*
 - **Run** — a complete, timestamped execution of a segment, including its start state, inputs, progression events and result. *Avoid: game, session (a replay is the persisted representation of a run).*
 - **Segment** — the competition unit chosen by the product, usually a level, race, zone or boss. A game can expose several ordered segments. *Avoid: round (reserved for competition format), level in every case.*
 
 ### Systems
 
-- **Race Arbiter** — the component that detects segment-end events (victory, end screen, Game Over) from Run events and deterministic replay, without reading game memory in real time. *Avoid: RAM detection, hardcoded per-game condition.*
-- **Game Profile** — a versioned, game-specific definition of accepted ROM hashes, core, start state, victory conditions, position calibration and Ghost rendering. *Avoid: patch, mod, emulator.*
-- **Ghost Profile** — the part of a Game Profile describing how to locate and draw the opponent (calibrated position addresses, frame offsets, composition rule). *Avoid: skin, static overlay.*
-- **Ghost Extractor** — the component that locates and crops the opponent's character from the Ghost process framebuffer (region around the calibrated position), with no real-time AI, no screen capture, no hand-written RAM profile. *Avoid: manual RAM profile, AI segmentation.*
+- **Race Arbiter** — the component that detects segment-end events (victory, end screen, Game Over) by screen-change detection (a big persistent framebuffer change) and Run events. *Avoid: RAM detection, hardcoded per-game condition, real-time AI.*
+- **Game Profile** — a versioned, game-specific definition of accepted ROM hashes, core, start state, victory/end rules and race settings. *Avoid: patch, mod, emulator.*
 
 ### Integrity and competition
 
@@ -488,13 +483,13 @@ If this loop isn't fun with three games, adding fifty consoles won't solve anyth
 ### Social
 
 - **Friend** — a reciprocal relationship accepted by both users, enabling private invitations and challenges. *Avoid: follower, contact.*
-- **Rival** — a followed or frequently-faced player whose Ghost and progress are highlighted. *Avoid: friend (a rival can be public without reciprocity).*
+- **Rival** — a followed or frequently-faced player whose progress and runs are highlighted. *Avoid: friend (a rival can be public without reciprocity).*
 - **Lobby** — a temporary Race preparation space with participants, game, segment, rules and countdown. *Avoid: game server (the game runs locally).*
 - **Game Community** — a public space centered on a game, its categories, events, players and ranking rules. *Avoid: guild (reserved for user-created organizations).*
 
 ### Resolved ambiguities
 
-- The product does not turn solo games into co-op. It organizes parallel **Races** with a visible in-game **Ghost**.
+- The product does not turn solo games into co-op. It organizes parallel **Races** where each player sees the other via a **PiP window** and a **progress gauge** — never by injecting anything into the game.
 - The server never runs the player's ROM and never receives it. It orchestrates, relays inputs and stores authorized metadata and replays.
 - A leaderboard never mixes incompatible content, cores, regions or categories.
 - "Verified" means reproducible per Game Profile rules, not inviolable against a compromised client.
@@ -505,9 +500,9 @@ If this loop isn't fun with three games, adding fifty consoles won't solve anyth
 >
 > **Client**: Your friend is in the Lobby. The common start happens in 5 seconds.
 >
-> **Player**: I see their Ghost in purple in my level, but it can't touch my enemies.
+> **Player**: I see my friend's screen in the corner, and the gauge shows I'm slightly ahead.
 >
-> **Client**: Correct. You each produce a local Run. The first valid victory event wins the segment.
+> **Client**: Correct. You each produce a local Run. The first valid end event wins the segment. At the end, both last seconds are replayed side by side.
 >
 > **Player**: Does my time appear on the Leaderboard?
 >
@@ -515,7 +510,7 @@ If this loop isn't fun with three games, adding fifty consoles won't solve anyth
 
 ## Message to send to the engineer friend
 
-Salut, je réfléchis à une application desktop cross-platform (je développe sur Mac) pour redonner une vie sociale aux jeux rétro : chacun joue localement au même niveau, voit le personnage de l'autre comme un Ghost in-game, et on compare qui termine en premier, sans modifier les jeux ni héberger les ROMs. Le plan est d'embarquer deux cores libretro dans un mini-frontend natif (un processus pour le jeu du joueur, un silencieux qui rejoue les inputs de l'adversaire de façon déterministe) : le vidéo callback fournit la framebuffer sans capture d'écran, et l'apparence du Ghost vient directement de la framebuffer du processus silencieux. Pour connaître la position du personnage sans profiler la RAM à la main, je compte sur une calibration automatique une fois par jeu : lancer deux instances avec des inputs légèrement différents, comparer les save states à la même frame, et en déduire les quelques octets qui changent. Le réseau arriverait seulement après validation du rendu local, en ne transportant que les inputs du run, pas de la vidéo. Est-ce que tu vois une architecture encore plus simple ou plus fiable que deux cores libretro embarqués + calibration automatique, et quel prototype minimal construirais-tu pour valider cette idée rapidement ?
+Salut, je réfléchis à une application desktop cross-platform (je développe sur Mac) pour redonner une vie sociale aux jeux rétro : on choisit sa console puis son jeu, et si un ami est en ligne on joue à ce jeu-là avec lui. Pendant la course, chacun voit une petite fenêtre live de l'écran de l'autre (picture-in-picture) plus une jauge de progression qui montre qui est en tête, et à la fin un replay ralenti des dernières secondes côte à côte. C'est un mini-frontend libretro embarqué (les cores sont des bibliothèques C matures, pas un émulateur écrit maison) : le vidéo callback expose la framebuffer sans capture d'écran, l'input est unifié clavier + manette. On a validé localement le rendu (NES + SNES, 60 fps fluide). Le réseau arrivera après, en ne transportant que des inputs et de petits extraits de framebuffer pour le PiP, pas de la vidéo complète. Est-ce que tu vois une architecture plus simple pour le mode course (voir l'écran de l'autre + jauge + replay de fin), et quel serait le prototype minimal à valider ?
 
 ## Key sources to watch
 

@@ -1,6 +1,6 @@
 # Retro Race Context
 
-Ce contexte définit le vocabulaire du produit de compétition sociale pour jeux rétro. Il sert à éviter de confondre émulation, netplay, ghost et course.
+Ce contexte définit le vocabulaire du produit de compétition sociale pour jeux rétro. Il sert à éviter de confondre émulation, netplay, écran partagé et course.
 
 ## Expérience de jeu
 
@@ -8,9 +8,17 @@ Ce contexte définit le vocabulaire du produit de compétition sociale pour jeux
 Une compétition dans laquelle plusieurs joueurs exécutent localement le même segment de jeu depuis un départ commun et cherchent à le terminer avant les autres.
 _Avoid_: Co-op, match netplay, partie partagée
 
-**Ghost**:
-La représentation in-game d'un autre joueur, produite à partir de ses inputs rejoués ou de son état de course. Le ghost n'agit pas sur la partie locale et ne modifie pas la logique du jeu.
-_Avoid_: Avatar réseau, écran partagé, streaming
+**Écran partagé** (remplace le Ghost):
+Pendant une Race, chaque joueur voit une petite fenêtre live de l'écran de l'autre (picture-in-picture), en plus de sa propre partie. On voit où en est l'adversaire à l'œil, sans injecter quoi que ce soit dans le jeu.
+_Avoid_: Ghost in-game, overlay de sprite, modification du framebuffer adverse
+
+**Jauge de course**:
+Barre de progression comparée (toi vs l'autre) affichée pendant la Race. Elle indique qui est en tête, basée sur le temps écoulé ou la détection de progression (pas sur un fantôme dans le jeu).
+_Avoid_: Sprite de l'adversaire, position in-game
+
+**Fin dramatique**:
+Fin de Race dramatisée : ralenti de la dernière seconde, nom du vainqueur avec son temps, puis replay des dernières secondes des deux écrans côte à côte pour voir où l'autre t'a doublé.
+_Avoid_: Classement froid, écran de résultat statique
 
 **Run**:
 Une exécution complète et horodatée d'un segment de jeu, incluant son état de départ, ses inputs, ses événements de progression et son résultat.
@@ -21,20 +29,12 @@ Unité de compétition choisie par le produit, généralement un niveau, une cou
 _Avoid_: Manche (réservé au format d'une compétition), niveau dans tous les cas
 
 **Race Arbiter**:
-Composant qui détecte les événements de fin de segment (victoire, écran de fin, Game Over) à partir des événements du Run et d'un rejeu déterministe, sans lire la mémoire du jeu en temps réel.
-_Avoid_: Détection RAM, condition codée par jeu
+Composant qui détecte les événements de fin de segment (victoire, écran de fin, Game Over) par détection de changement d'écran (gros changement persistant de la framebuffer) et par événements du Run. Une classification IA des écrans de fin reste une option asynchrone, hors boucle temps réel.
+_Avoid_: Détection RAM, condition codée par jeu, IA temps réel
 
 **Game Profile**:
-Définition versionnée et spécifique à un jeu qui décrit son identifiant, ses ROM hashes acceptés, son core, son état de départ, ses conditions de victoire, sa calibration de position et la manière d'afficher le ghost.
+Définition versionnée et spécifique à un jeu qui décrit son identifiant, ses ROM hashes acceptés, son core, son état de départ, ses conditions de victoire et ses règles de course.
 _Avoid_: Patch, mod, émulateur
-
-**Ghost Profile**:
-Sous-ensemble d'un Game Profile décrivant comment localiser et dessiner le personnage du joueur adverse : adresses de position (obtenues par calibration automatique), décalages de frames et règle de composition.
-_Avoid_: Skin, overlay statique
-
-**Ghost Extractor**:
-Composant qui localise et découpe le personnage adverse à partir de la framebuffer du processus Ghost (région autour de la position calibrée), sans IA temps réel, sans capture d'écran et sans profile RAM écrit à la main.
-_Avoid_: Profile RAM manuel, segmentation IA
 
 ## Intégrité et compétition
 

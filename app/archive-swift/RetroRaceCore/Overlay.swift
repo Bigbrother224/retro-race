@@ -4,7 +4,8 @@ import Foundation
 
 // MARK: - Phase 1: local Ghost lab (launcher + shared memory)
 
-/// Copies the libretro framebuffer (XRGB8888) into a tightly packed RGBA buffer.
+/// Copies the libretro framebuffer into a tightly packed RGBA buffer,
+/// handling the core's pixel format (XRGB8888, RGB565, 0RGB1555).
 final class OverlaySink: @unchecked Sendable {
     var width = 0
     var height = 0
@@ -16,24 +17,12 @@ final class OverlaySink: @unchecked Sendable {
         width = Int(frame.width)
         height = Int(frame.height)
         pitch = Int(frame.pitch)
-        let rowBytes = width * 4
-        rgba = [UInt8](repeating: 0, count: rowBytes * height)
-        let src = fb.assumingMemoryBound(to: UInt8.self)
-        rgba.withUnsafeMutableBufferPointer { dst in
-            for y in 0..<height {
-                let s = src + y * pitch
-                let d = dst.baseAddress! + y * rowBytes
-                for x in 0..<width {
-                    let b = s[x * 4 + 0]
-                    let g = s[x * 4 + 1]
-                    let r = s[x * 4 + 2]
-                    d[x * 4 + 0] = r
-                    d[x * 4 + 1] = g
-                    d[x * 4 + 2] = b
-                    d[x * 4 + 3] = 255
-                }
-            }
-        }
+        let layout = FramebufferLayout.current
+        rgba = convertFramebuffer(src: fb.assumingMemoryBound(to: UInt8.self),
+                                  width: width, height: height,
+                                  pitch: pitch,
+                                  bytesPerPixel: layout.bytesPerPixel,
+                                  format: layout.format)
     }
 }
 

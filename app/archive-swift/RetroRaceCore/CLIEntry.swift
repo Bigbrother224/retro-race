@@ -24,6 +24,8 @@ public func runRetroRaceCLI(_ args: [String]) {
         runList(Array(args.dropFirst(2)))
     case "race-headless":
         runRaceHeadless(Array(args.dropFirst(2)))
+    case "check-render":
+        runCheckRender(Array(args.dropFirst(2)))
     case "overlay":
         runOverlay()
     default:

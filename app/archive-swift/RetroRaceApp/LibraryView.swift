@@ -79,24 +79,19 @@ struct LibraryView: View {
     }
 }
 
-/// Simulated local Race: player core + silent ghost (shared memory).
+/// Player screen: runs the game locally (no ghost).
 struct RaceView: View {
     let game: GameEntry
     @ObservedObject var model: LibraryViewModel
-    @State private var frame: [UInt8] = []
-    @State private var width = 256
-    @State private var height = 240
-    @State private var ghostX = 0
-    @State private var ghostY = 0
-    @State private var ghostTile: [UInt8] = []
-    @State private var ghostVisible = false
-    @State private var ghostName = "Rival"   // demo: opponent pseudonym
-    @State private var trail: [RaceSession.TrailPoint] = []
     @State private var status = "Démarrage…"
     @State private var errorText: String?
 
     private let session = RaceSession()
-    @State private var timer: Timer?
+    private let renderer = FrameRenderer()
+    @State private var displayLink: DisplayLinkDriver?
+    @State private var gamepad: GamepadManager?
+    @State private var aspect: CGFloat = 256.0 / 240.0
+    @StateObject private var canvasBridge = CanvasBridge()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -118,20 +113,17 @@ struct RaceView: View {
             }
             .padding(10)
 
-            GameCanvasView(frame: frame, width: width, height: height,
-                           ghostX: ghostX, ghostY: ghostY,
-                           ghostTile: ghostTile, ghostVisible: ghostVisible,
-                           ghostName: ghostName, trail: trail)
-                .aspectRatio(CGFloat(width) / CGFloat(height), contentMode: .fit)
+            GameCanvasView(input: session.input, bridge: canvasBridge)
+                .aspectRatio(aspect, contentMode: .fit)
                 .background(Color.black)
 
-            Text("Ghost : \(ghostVisible ? "visible" : "en attente du processus ghost…")")
-                .font(.caption)
+            Text("Flèches: direction · Z/X: A/B · A/S: Y/X · Entrée: Start · Maj: Select · Q/E: L/R")
+                .font(.caption2)
                 .foregroundStyle(.secondary)
-                .padding(6)
+                .padding(4)
         }
         .onAppear { start() }
-        .onDisappear { timer?.invalidate(); session.stop() }
+        .onDisappear { displayLink?.stop(); gamepad?.stop(); session.stop() }
     }
 
     private func start() {
@@ -141,28 +133,17 @@ struct RaceView: View {
             status = "Profil calibration chargé (offset 0x\(String(format: "%04x", profile.positionCandidate?.offset ?? 0)))"
         }
 
-        // ghost-live child publishes position + sprite over shm
-        let exe = executablePath()
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: exe)
-        proc.arguments = ["ghost-live", "--shm", "retro_race_ghost"]
-        proc.standardOutput = Pipe()
-        proc.standardError = Pipe()
-        do {
-            try proc.run()
-        } catch {
-            errorText = "Impossible de lancer ghost-live : \(error.localizedDescription)"
-            return
-        }
+        let pad = GamepadManager(input: session.input)
+        pad.start()
+        gamepad = pad
 
         DispatchQueue.global(qos: .userInitiated).async {
             do {
                 try session.start(rom: game.path)
                 DispatchQueue.main.async {
-                    width = session.width
-                    height = session.height
-                    status = "En course"
-                    startTimer()
+                    aspect = CGFloat(session.width) / CGFloat(session.height)
+                    status = "En jeu"
+                    startDisplayLink()
                 }
             } catch {
                 DispatchQueue.main.async {
@@ -172,30 +153,20 @@ struct RaceView: View {
         }
     }
 
-    private func startTimer() {
-        timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { _ in
+    private func startDisplayLink() {
+        let link = DisplayLinkDriver()
+        let session = self.session
+        let renderer = self.renderer
+        let bridge = self.canvasBridge
+        link.onFrame = {
             session.step()
-            frame = session.frame
-            width = session.width
-            height = session.height
-            let g = session.ghostState
-            ghostX = g.x
-            ghostY = g.y
-            ghostTile = g.tile
-            ghostVisible = g.visible
-            trail = session.ghostTrail
+            if let img = renderer.image(from: session.frame,
+                                        width: session.width,
+                                        height: session.height) {
+                bridge.canvas?.setImage(img)
+            }
         }
-    }
-
-    private func executablePath() -> String {
-        // App and CLI live side by side; reuse the CLI binary to spawn ghost-live.
-        let base = Bundle.main.bundleURL
-        if let exe = Bundle.main.executablePath {
-            let dir = (exe as NSString).deletingLastPathComponent
-            let cli = (dir as NSString).appendingPathComponent("RetroRaceCLI")
-            if FileManager.default.fileExists(atPath: cli) { return cli }
-            return base.appendingPathComponent("RetroRaceCLI").path
-        }
-        return "RetroRaceCLI"
+        link.start()
+        displayLink = link
     }
 }

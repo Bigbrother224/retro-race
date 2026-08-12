@@ -147,133 +147,116 @@ Chaque jeu supporté possède une page avec :
 - guides de configuration ;
 - signalement et modération.
 
-## Le Ghost in-game
+## La course
 
 ### La stratégie la plus simple
 
-Le premier prototype embarque le core libretro (pas RetroArch complet) : le vidéo callback de l'API libretro expose la framebuffer brute, sans capture d'écran. Deux processus légers, l'un visible pour le joueur, l'autre silencieux pour le Ghost :
+Le premier prototype embarque le core libretro (pas RetroArch complet) : le vidéo callback de l'API libretro expose la framebuffer brute, sans capture d'écran. Chaque joueur a sa propre instance du core :
 
 ```text
 Processus joueur A
    ├─ core libretro A : jeu réel, visible, manette du joueur
    ├─ vidéo callback libretro → framebuffer A (pas de capture d'écran)
-   └─ compose le Ghost : région teintée de B par-dessus la frame A
+   └─ affiche une petite fenêtre live (PiP) de la framebuffer de B + la jauge
 
-Processus Ghost B (silencieux)
+Processus joueur B
    ├─ core libretro B : même ROM, même core, même état de départ
-   ├─ rejoue les inputs de B (replay déterministe)
-   ├─ vidéo callback → NULL (ne rend rien, coût CPU minimal)
-   └─ publie position + région sprite via mémoire partagée (quelques octets/frame)
+   ├─ vidéo callback libretro → framebuffer B
+   └─ partage de petits extraits basse fréquence de sa framebuffer pour le PiP de A
 ```
 
-Le processus Ghost ne reçoit jamais une vidéo réseau : il reçoit le replay d'inputs et le rejoue localement. La fenêtre desktop transparente, click-through et alignée sur la fenêtre du jeu affiche uniquement le résultat de la composition.
+Le processus adversaire ne reçoit jamais une vidéo réseau complète : il partage de petits extraits de sa framebuffer (quelques frames par seconde) pour la fenêtre PiP. Le gameplay de A ne dépend jamais de l'état de B ; la fenêtre PiP peut laguer ou sauter des frames sans rendre la partie injouable.
 
-### Couche légère : extraire le Ghost sans IA temps réel, sans capture d'écran, sans profile RAM manuel
+### La couche course, simplifiée : voir l'écran de l'autre + jauge, sans ghost
 
-Le vrai changement par rapport à l'approche classique : **l'API libretro fournit déjà la framebuffer, et le déterminisme fournit la position — il ne manque que l'adresse mémoire, obtenue par calibration automatique**.
+On abandonne le Ghost in-game : **rien n'est injecté dans le jeu**. À la place, pendant une Race :
 
-1. **Apparence gratuite** : le processus Ghost rend sa propre framebuffer (vidéo callback). Le client copie la région autour de la position du personnage, la teinte (couleur de course, contour, opacité) et la compose. Zéro segmentation, zéro sprite sheet, zéro adresse pour l'apparence.
-2. **Position par calibration auto** : une fois par jeu, on lance deux instances du même core avec des inputs légèrement différents, on sérialise l'état (save state) à la même frame, et on compare les tableaux d'octets. Les octets qui diffèrent correspondent à l'état du joueur. Le client ne lit ensuite que 4 à 8 octets par frame.
-3. **Seed communautaire** : la base de données de RetroAchievements fournit des adresses déjà connues pour de nombreux jeux, ce qui réduit la calibration à une vérification.
+1. **Fenêtre live (PiP)** : chaque joueur voit une petite fenêtre de l'écran de l'autre (extrait framebuffer basse fréquence, ~quelques fps). On voit où en est l'adversaire à l'œil.
+2. **Jauge de course** : une barre comparée (toi vs l'autre) indique qui est en tête, basée sur le temps écoulé ou la progression détectée.
+3. **Fin dramatique** : ralenti de la dernière seconde, nom du vainqueur + temps, puis replay des dernières secondes des deux écrans côte à côte.
 
 Coût réel :
 
-- deux cores 8/16-bit embarqués = quelques % de CPU sur Apple Silicon ;
-- pas de rendu vidéo côté Ghost (vidéo callback NULL) ;
-- IPC de quelques octets par frame ;
+- un core 8/16-bit par joueur = quelques % de CPU sur Apple Silicon ;
+- extraits framebuffer pour le PiP = bande passante négligeable (petites images, basse fréquence) ;
 - app plus légère qu'un RetroArch complet, sans Electron.
 
 Limites à connaître :
 
-- une calibration est nécessaire par jeu (quelques secondes), et peut échouer si le jeu stocke son état de façon obscure ;
-- les transformations (Mario qui rétrécit) déplacent le personnage mais restent couvertes par le suivi de la position ;
-- en cas d'échec de calibration, le Ghost bascule en `Echo` (masque de différence) ou en trajectoire abstraite, jamais en promesse de sprite exact.
+- la jauge de progression par temps est approximative pour les jeux non linéaires (elle mesure qui joue depuis le moins longtemps) ;
+- la détection de fin de segment par changement d'écran peut se tromper sur les cinématiques ; elle sera affinée par Game Profile (règles par jeu).
 
 ### L'arbitrage de course
 
-La fin de segment est détectée par événements du Run et par le replay déterministe, pas par un modèle de vision :
+La fin de segment est détectée par **changement d'écran** et par événements du Run, pas par un modèle de vision temps réel :
 
-- le Run capture des événements de progression ; la fin de segment est confirmée par rejeu local déterministe ;
-- un modèle de classification d'écrans de fin (Level Clear / Game Over) reste une option asynchrone en secours, hors boucle temps réel, donc sans coût runtime.
-
-Un système de vérification par rejeu reste nécessaire pour les classements sérieux.
+- un gros changement persistant de la framebuffer (écran de fin, Game Over) signale une fin de segment — détection générique, tous jeux confondus ;
+- un modèle de classification d'écrans de fin (Level Clear / Game Over) reste une option asynchrone en secours, hors boucle temps réel, donc sans coût runtime ;
+- la vérification par rejeu déterministe reste nécessaire pour les classements sérieux.
 
 ### Ordre de réutilisation des ressources existantes
 
-1. Embarquer le core libretro (framebuffer + calibration auto) : la voie par défaut, la plus légère au runtime.
-2. Comparer les frames déterministes et ne conserver que les zones mobiles (`Echo`), en secours.
-3. Utiliser un plan de rendu sprite fourni par l'émulateur quand le core le permet (plus précis, plus coûteux à maintenir).
-4. Ajouter un adaptateur mémoire manuel uniquement pour les jeux populaires qui exigent un classement très précis.
+1. Embarquer le core libretro (framebuffer via vidéo callback) : la voie par défaut, la plus légère au runtime.
+2. Détection de fin par changement d'écran + PiP framebuffer : générique, tous jeux.
+3. Utiliser les formats natifs des cores pour le replay (BSV / savestate) avant d'inventer un format.
+4. Ajouter des règles par jeu (Game Profile) seulement pour les jeux populaires qui exigent une détection précise.
 5. Lancer RetroArch complet via NCI UDP + BSV seulement comme backend alternatif pour les jeux dont le core embarqué n'est pas satisfaisant.
-
-Le produit peut appeler la deuxième et la troisième technique `Echo` tant qu'elles ne garantissent pas un personnage propre. Cela évite de promettre un Ghost parfait pour tous les jeux.
 
 ### Version minimale réellement recommandée
 
 Pour éviter de construire une plateforme avant d'avoir validé l'idée, le premier prototype doit être volontairement étroit :
 
 - macOS et Windows, développé sur le Mac de l'équipe ;
-- un seul backend : core libretro embarqué ;
-- un seul jeu 2D déterministe ;
-- deux processus locaux, dont un silencieux ;
-- framebuffer via vidéo callback + position par calibration auto ;
-- overlay transparent au-dessus de la fenêtre principale ;
+- un seul backend : core libretro embarqué (validé : NES + SNES) ;
+- menu arcade : choisir console → choisir jeu ;
+- un joueur + un opposant local simulé (2e instance) pour tester la course ;
+- framebuffer via vidéo callback, rendu fluide (vsync) ;
+- input unifié clavier + manette ;
+- course : PiP live de l'écran de l'autre + jauge de progression + fin dramatique (ralenti + replay des dernières secondes côte à côte) ;
 - aucun compte, classement ou matchmaking dans le premier test ;
 - deux manettes et une revanche locale simulée avant tout réseau.
 
 Le réseau arrive seulement après validation de cette phrase :
 
-> "Je vois suffisamment bien le Ghost de mon ami pour comprendre où il me dépasse et vouloir recommencer."
+> "Je vois suffisamment bien l'écran de mon ami pour comprendre où il me dépasse et vouloir recommencer."
 
-La limite fondamentale reste : un Ghost exact et universel n'existe pas sans qu'un émulateur expose les sprites, un Visual Adapter soit fourni, ou qu'on accepte un Ghost stylisé. **La nouveauté de l'approche embarquée : l'apparence vient de la framebuffer du Ghost lui-même (gratuite) et la position d'une calibration automatique de quelques secondes par jeu — pas d'IA, pas de capture d'écran, pas de profile RAM écrit à la main.**
+**La nouveauté de l'approche : rien n'est injecté dans le jeu. La framebuffer du joueur (via le vidéo callback) sert à la fois d'affichage et d'extrait partagé pour le PiP ; la jauge et la fin dramatique s'appuient sur le temps et la détection de changement d'écran — pas d'IA temps réel, pas de capture d'écran, pas de profile RAM écrit à la main.**
 
 ### Architecture de base
 
-Pendant une Race, le client ne reçoit pas l'image de l'adversaire. Il reçoit des entrées discrètes et horodatées : boutons, axes, frame logique et événements de session. Une deuxième instance du core rejoue ces inputs depuis le même état de départ. Le renderer compose ensuite le Ghost sur le rendu principal.
+Pendant une Race, chaque client montre une petite fenêtre live de la framebuffer de l'adversaire (extraits basse fréquence) et une jauge de progression. Les inputs du run restent le moyen de vérification/rejeu déterministe.
 
 ```text
-Core local joueur A ───────────────┐
-                                   ├─ Renderer local ── écran A
-Core Ghost joueur B ◄─ inputs B ───┘
+Core local joueur A ───────── framebuffer A ── écran A (principal)
+                                        │
+                                        └── extrait basse fréquence ──► PiP chez B
 
-Client B ── inputs B ── relay régional ── client A
+Core joueur B ───────────────── framebuffer B ── écran B (principal)
+                                        │
+                                        └── extrait basse fréquence ──► PiP chez A
+
+Jauge de course : temps/progression comparés, affichée chez les deux.
 ```
 
-Le gameplay de A n'est jamais dépendant de l'état de B. Le Ghost peut être en retard de quelques frames sans rendre la partie injouable.
+Le gameplay de A n'est jamais dépendant de l'état de B. Le PiP peut laguer de quelques frames sans rendre la partie injouable.
 
-### Trois niveaux de rendu
+### Trois niveaux d'affichage de l'adversaire
 
-L'approche embarquée (framebuffer + calibration auto, décrite ci-dessus) est le niveau de rendu principal du MVP. Les niveaux suivants restent utiles comme secours ou pour la précision maximale.
+#### Niveau 1 : PiP + jauge (recommandé, MVP)
 
-#### Niveau 1 : acteur natif, recommandé
+Une petite fenêtre live de l'écran de l'adversaire + une jauge comparée. Simple, universel, fonctionne pour tous les jeux sans profil.
 
-Un Ghost Profile décrit les adresses ou événements permettant de connaître position, caméra, sprite, animation et état du personnage. Le renderer dessine uniquement le personnage adverse avec transparence, couleur, contour et traînée.
+#### Niveau 2 : fin dramatique + replay
 
-Avantages : rendu propre, lisible, faible coût, proche de Mario Kart.
+Ralenti de la dernière seconde, nom du vainqueur + temps, replay des dernières secondes des deux écrans côte à côte. Même base technique que le Niveau 1 (framebuffer), plus l'habillage.
 
-Limites : travail par jeu et parfois par région/version ; certains jeux ont plusieurs acteurs, transformations ou caméras complexes.
+#### Niveau 3 : représentation in-game (optionnelle, plus tard)
 
-> **Note** : le MVP préfère l'approche embarquée (framebuffer + calibration auto, voir "Couche légère") à ce niveau, car l'apparence vient gratuitement du Ghost lui-même. L'adaptateur mémoire manuel reste réservé aux jeux à classement très précis.
-
-#### Niveau 2 : silhouette ou delta déterministe
-
-Le client rejoue la frame du Ghost et calcule une différence avec le décor local. Il conserve les zones mobiles ou produit une silhouette colorée, sans nécessiter immédiatement toutes les adresses RAM.
-
-Avantages : couverture plus large, utile pour accélérer l'ouverture de nouveaux jeux.
-
-Limites : ennemis et objets mobiles peuvent apparaître comme de faux Ghosts ; scrolling, HUD, effets et arrière-plans animés rendent le masque imparfait. Cette technique doit être présentée comme un `Echo`, pas comme un Ghost natif parfait.
-
-#### Niveau 3 : trajectoire abstraite de secours
-
-Pour un jeu non profilé, afficher une ligne de progression, une ombre de trajectoire, des splits et la position de l'adversaire dans la zone, sans prétendre placer un sprite exact.
-
-Avantages : permet de garder le jeu dans la communauté sans bloquer sur l'analyse mémoire.
-
-Limites : ce n'est pas l'expérience wow principale. Aucun jeu non profilé ne doit apparaître comme entièrement compatible avec le Ghost natif.
+Toute représentation dans le jeu (ghost, trajectoire) est explicitement hors MVP. On ne la reconsidère que si le PiP ne suffit pas à l'excitation.
 
 ### Déterminisme
 
-Le Ghost natif exige au minimum :
+Le rejeu et la vérification d'un Run exigent au minimum :
 
 - même hash de contenu ;
 - même région et révision ;
@@ -283,7 +266,7 @@ Le Ghost natif exige au minimum :
 - même cadence logique ;
 - absence de divergence détectée.
 
-Le support initial recommandé : NES, SNES, Game Boy, Game Boy Color, Genesis et quelques jeux GBA déterministes. PS1 doit commencer en Ghost différé ou Echo ; PS2 est exclue du MVP.
+Le support initial recommandé : NES, SNES, Game Boy, Game Boy Color, Genesis et quelques jeux GBA déterministes. PS1 et plus lourds viennent plus tard ; PS2 est exclue du MVP.
 
 ### Game Profiles
 
@@ -294,14 +277,10 @@ Un Game Profile est un artefact versionné, testable et publiable séparément d
 - core et version compatibles ;
 - état de départ et méthode de reset ;
 - segments et ordre ;
-- détection de début, checkpoint et victoire ;
+- détection de début, checkpoint et victoire (par changement d'écran, affinée par jeu) ;
 - limites de temps et pauses autorisées ;
-- Ghost Profile ;
-- masques HUD et règles de composition ;
 - règles de classement ;
 - limitations connues et tests de reproductibilité.
-
-Un **Visual Adapter** optionnel peut ne contenir que : fenêtre de jeu, mode d'extraction, index de plan, masque HUD, décalage de frames et éventuellement un template du personnage. Il ne faut pas commencer par une base complexe d'adresses RAM.
 
 La communauté peut proposer des profiles, mais seuls les profiles maintenus et testés alimentent les classements Verified.
 
@@ -309,11 +288,11 @@ La communauté peut proposer des profiles, mais seuls les profiles maintenus et 
 
 ### Duel live 1v1
 
-Le mode emblématique. Départ simultané, Ghost live, victoire au premier événement valide.
+Le mode emblématique. Départ simultané, PiP live de l'écran adverse + jauge, victoire au premier événement de fin valide.
 
-### Défi Ghost asynchrone
+### Défi asynchrone
 
-Le mode de rétention. Le joueur défie un temps existant, le Ghost est rejoué localement, et le résultat peut être publié même si le rival est hors ligne.
+Le mode de rétention. Le joueur défie un temps existant, le run de l'adversaire est rejoué (déterministe) pour comparer, et le résultat peut être publié même si le rival est hors ligne.
 
 ### Course de segments
 
@@ -481,14 +460,14 @@ Le feed doit privilégier les actions jouables (`Bats ce Ghost`) plutôt que des
 
 ### Ce qui peut rendre le produit wow
 
-- arrivée dans le niveau avec le Ghost de l'ami déjà visible ;
-- couleurs, nom et statut du rival lisibles sans masquer le jeu ;
+- arrivée dans la partie avec l'écran de l'ami déjà visible en PiP ;
+- nom et statut du rival lisibles sans masquer le jeu ;
 - split de temps discret et dramatisation à la fin ;
-- replay automatique des dix dernières secondes avec les deux Ghosts ;
+- replay automatique des dix dernières secondes avec les deux écrans côte à côte ;
 - photo de résultat partageable ;
 - revanche instantanée sans reconfigurer le jeu ;
 - matchmaking qui trouve un joueur de niveau comparable ;
-- Ghosts historiques : meilleur ami, record communautaire, record personnel ;
+- runs historiques : meilleur ami, record communautaire, record personnel ;
 - événements thématiques qui donnent une raison de revenir chaque semaine ;
 - **coach IA post-course** : une analyse différée compare ton run et celui du rival et explique en une phrase où tu as perdu du temps ("tu perds 0,8 s sur le premier saut parce que tu sautes 3 frames trop tard"), hors boucle temps réel donc sans coût runtime ;
 
@@ -496,38 +475,35 @@ Le feed doit privilégier les actions jouables (`Bats ce Ghost`) plutôt que des
 
 Les durées ci-dessous sont des ordres de grandeur pour une petite équipe expérimentée. Elles ne valent pas promesse de calendrier ; le critère est l'exit condition de chaque phase.
 
-### Phase 0 — Spike de faisabilité cross-platform, 1 à 2 semaines
+### Phase 0 — Spike de faisabilité cross-platform, 1 à 2 semaines ✅
 
-Objectif : vérifier que le Ghost est possible sur le Mac de l'équipe, avant de construire le social.
+Objectif : vérifier que l'émulation embarquée et la course sont possibles sur le Mac de l'équipe, avant de construire le social.
 
-Livrables :
+Livrables (faits) :
 
-- une démo/homebrew légalement distribuable ;
-- un core libretro embarqué dans un mini-frontend macOS (vidéo callback → framebuffer) ;
-- deux processus, dont un Ghost silencieux (vidéo callback NULL) ;
-- état de départ identique ;
-- mesure de déterminisme sur plusieurs centaines de milliers de frames ;
-- prototype de calibration automatique par diff de save states (position du personnage) ;
-- overlay transparent click-through aligné sur la fenêtre de jeu ;
-- mesure CPU, mémoire et latence sur une machine modeste.
+- une démo/homebrew légalement distribuable (Alter Ego) + un jeu propriétaire local (Super Mario World, SNES) ;
+- core libretro embarqué dans un mini-frontend macOS (vidéo callback → framebuffer) : FCEUmm (NES) et Snes9x (SNES) ;
+- rendu fluide 60 fps (CVDisplayLink, buffer réutilisé) ;
+- input unifié clavier + manette ;
+- détection de fin par changement d'écran ;
+- mesure de déterminisme sur des centaines de milliers de frames.
 
-Go/no-go : le jeu principal reste stable, le Ghost reste lisible et la calibration donne une position fiable. Si la calibration échoue, tester le plan sprite du core ou le masque de différence (`Echo`), puis seulement étudier un adaptateur RetroArch externe. Ne pas écrire un émulateur.
+Go/no-go : le jeu reste stable et fluide, les couleurs et dimensions sont correctes. Ne pas écrire un émulateur.
 
-### Phase 1 — Ghost Lab local, 3 à 6 semaines
+### Phase 1 — Launcher arcade + course locale, 3 à 6 semaines
 
 Objectif : une boucle complète sans compte ni réseau.
 
 Livrables :
 
 - launcher desktop macOS + Windows avec mini-frontend libretro embarqué ;
-- processus Ghost silencieux et mémoire partagée position + sprite ;
+- menu arcade : choisir console → choisir jeu ;
 - bibliothèque locale et import par hash ;
-- calibration automatique par jeu (JSON versionné) ;
-- Race locale simulée avec deux processus d'émulation ;
-- Ghost avec couleur, opacité, nom et traînée ;
-- pause, reset, abandon, fin de segment (événements du Run + rejeu) ;
-- replay exportable et rejouable ;
-- `Echo` de secours (masque de différence) pour tester la couverture.
+- course locale simulée avec deux instances d'émulation ;
+- PiP live de l'écran de l'autre + jauge de progression ;
+- fin dramatique (ralenti + nom + temps + replay des dernières secondes côte à côte) ;
+- pause, reset, abandon, fin de segment (détection par changement d'écran + événements du Run) ;
+- replay exportable et rejouable.
 
 Exit : une personne qui ne connaît pas l'architecture comprend la course en moins de 30 secondes et peut la relancer sans menu technique.
 
@@ -541,13 +517,13 @@ Livrables :
 - invitation par code ;
 - lobby privé ;
 - compatibilité hash/backend/options ;
-- relay d'inputs ;
+- relay d'inputs + extraits framebuffer basse fréquence pour le PiP ;
 - compte à rebours et frame de départ communs ;
 - reconnexion et abandon propre ;
 - résultat et revanche ;
 - historique privé des Races.
 
-Exit : deux joueurs sur des réseaux différents terminent une Race sans PIP, sans ralentissement local et avec un Ghost lisible.
+Exit : deux joueurs sur des réseaux différents terminent une Race avec le PiP de l'autre visible, sans ralentissement local.
 
 ### Phase 3 — Défis asynchrones et profils, 3 à 5 semaines
 
@@ -555,8 +531,8 @@ Objectif : rendre le produit intéressant même quand aucun ami n'est en ligne.
 
 Livrables :
 
-- publication d'un Ghost/Run ;
-- `Bats ce Ghost` ;
+- publication d'un Run ;
+- `Bats ce Run` (rejeu déterministe du run de l'adversaire) ;
 - meilleur temps personnel ;
 - historique des rivalités ;
 - profils et amis ;

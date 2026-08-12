@@ -51,6 +51,10 @@ public final class RaceSession: @unchecked Sendable {
     private let sink = OverlaySink()
     private var coreLoaded = false
 
+    /// Live input provider; the UI mutates it (keyboard/gamepad), the core
+    /// reads it every frame.
+    public let input = PlayerInput()
+
     public init(shmName: String = "retro_race_ghost", trailLength: Int = 30) {
         self.shmName = shmName
         self.trailLength = trailLength
@@ -59,7 +63,7 @@ public final class RaceSession: @unchecked Sendable {
     /// Loads the ROM and starts the player core. Call from a background thread.
     public func start(rom: String) throws {
         let romData = loadROM(rom)
-        loadCore()
+        loadCore(rom: rom)
 
         let handle = Unmanaged.passUnretained(sink).toOpaque()
         let videoCallback: @convention(c) (rr_frame, UnsafeMutableRawPointer?) -> Void = { frame, user in
@@ -67,7 +71,7 @@ public final class RaceSession: @unchecked Sendable {
             Unmanaged<OverlaySink>.fromOpaque(user).takeUnretainedValue().onFrame(frame)
         }
         rr_set_video(rr_video(on_frame: videoCallback, user: handle))
-        attachInput(ScriptedInput([]))
+        attachPlayerInput(input)
 
         guard rr_load_game((romData as NSData).bytes, romData.count) == 0 else {
             throw RaceError.loadFailed
