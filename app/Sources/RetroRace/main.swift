@@ -73,6 +73,10 @@ case "calibrate-run":
     runCalibrateRun(Array(args.dropFirst(2)))
 case "ghost":
     runGhost(Array(args.dropFirst(2)))
+case "ghost-live":
+    runGhostLive(Array(args.dropFirst(2)))
+case "shm-peek":
+    runShmPeek(Array(args.dropFirst(2)))
 case "overlay":
     runOverlay()
 default:
@@ -83,6 +87,8 @@ default:
       RetroRace calibrate [--frames N]  spawn 2 children, diff their save states
       RetroRace calibrate-run --out PATH [--hold RIGHT --from 120] [--frames N]
       RetroRace ghost --out PATH        silent ghost: run frames, dump save state
+      RetroRace ghost-live --shm NAME   publish ghost position+sprite over shared memory
+      RetroRace shm-peek --shm NAME     consumer: print frames from shared memory (headless check)
       RetroRace overlay                 player window + transparent click-through ghost overlay
     """)
     exit(1)

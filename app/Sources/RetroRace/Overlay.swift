@@ -2,7 +2,7 @@ import AppKit
 import CRetroRace
 import Foundation
 
-// MARK: - Phase 0 overlay spike
+// MARK: - Phase 1: local Ghost lab (launcher + shared memory)
 
 /// Copies the libretro framebuffer (XRGB8888) into a tightly packed RGBA buffer.
 final class OverlaySink: @unchecked Sendable {
@@ -72,41 +72,94 @@ final class GameFrameView: NSView {
     }
 }
 
+/// Draws the ghost sprite (from shared memory) tinted purple, on the
+/// transparent click-through overlay.
 final class GhostOverlayView: NSView {
-    /// Ghost tile center in *game pixels* (calibrated position, see runOverlay).
     var ghostX: CGFloat = 0
     var ghostY: CGFloat = 0
     var ghostVisible = false
+    private var tileRGBA: [UInt8] = []
+    private let tilePx = Int(RR_SHM_TILE_W)
+
+    func setGhost(x: Int, y: Int, tile: [UInt8]) {
+        ghostX = CGFloat(x)
+        ghostY = CGFloat(y)
+        tileRGBA = tile
+        ghostVisible = !tile.isEmpty
+        needsDisplay = true
+    }
 
     override func draw(_ dirtyRect: NSRect) {
         NSColor.clear.setFill()
         dirtyRect.fill()
-        guard ghostVisible else { return }
+        guard ghostVisible, !tileRGBA.isEmpty else { return }
 
-        let tile: CGFloat = 16
         let scale = bounds.width / 256
-        let w = tile * scale
-        let h = tile * scale
+        let w = CGFloat(tilePx) * scale
+        let h = CGFloat(tilePx) * scale
         let rect = NSRect(x: ghostX * scale - w / 2,
                           y: bounds.height - ghostY * scale - h / 2,
                           width: w, height: h)
 
-        let path = NSBezierPath(roundedRect: rect, xRadius: 4, yRadius: 4)
-        NSColor(calibratedRed: 0.6, green: 0.2, blue: 0.9, alpha: 0.55).setFill()
-        path.fill()
-        NSColor(calibratedRed: 0.9, green: 0.6, blue: 1.0, alpha: 0.9).setStroke()
-        path.lineWidth = 1.5
-        path.stroke()
+        guard let tinted = makeTintedImage(rgba: tileRGBA, w: tilePx, h: tilePx) else {
+            return
+        }
+        if let ctx = NSGraphicsContext.current?.cgContext {
+            ctx.interpolationQuality = .none
+            ctx.saveGState()
+            // race color: purple ghost, 60% opacity
+            ctx.setAlpha(0.6)
+            ctx.draw(tinted, in: rect)
+            ctx.restoreGState()
+        }
+    }
+
+    /// Recolors non-transparent pixels toward the player's race color (purple).
+    private func makeTintedImage(rgba: [UInt8], w: Int, h: Int) -> CGImage? {
+        guard !rgba.isEmpty else { return nil }
+        var tinted = [UInt8](repeating: 0, count: rgba.count)
+        for i in stride(from: 0, to: rgba.count, by: 4) {
+            let a = rgba[i + 3]
+            guard a > 8 else { continue }
+            let lum = (Int(rgba[i]) * 3 + Int(rgba[i + 1]) * 4 + Int(rgba[i + 2]) * 1) / 8
+            // purple tint: keep luminance, push hue toward 270° (red 0.6, green 0.2, blue 0.9)
+            tinted[i + 0] = UInt8(min(255, lum * 6 / 10 + 40))
+            tinted[i + 1] = UInt8(min(255, lum * 2 / 10))
+            tinted[i + 2] = UInt8(min(255, lum * 9 / 10 + 30))
+            tinted[i + 3] = 255
+        }
+        return makeCGImage(rgba: tinted, width: w, height: h)
     }
 }
 
-/// Runs the player window + transparent click-through ghost overlay.
-/// Window position: two aligned windows (parent + child overlay). The overlay
-/// is borderless, fully transparent and ignores mouse events, so all input
-/// reaches the game window underneath.
+/// Launcher: spawns the silent ghost (ghost-live) and shows the player window
+/// with the ghost composited from shared memory.
+///
+/// Player process A runs its own core (your game, your controller). Ghost
+/// process B (ghost-live) is spawned as a child, replays inputs, publishes
+/// position + sprite tile over shared memory. A transparent click-through
+/// window draws the tinted ghost above the player framebuffer.
 func runOverlay() {
     setbuf(stdout, nil)
 
+    let shmName = "retro_race_ghost"
+
+    // --- spawn ghost-live child ---
+    let exe = CommandLine.arguments[0]
+    let ghostProc = Process()
+    ghostProc.executableURL = URL(fileURLWithPath: exe)
+    ghostProc.arguments = ["ghost-live", "--shm", shmName]
+    let ghostOut = Pipe()
+    ghostProc.standardOutput = ghostOut
+    ghostProc.standardError = ghostOut
+    do {
+        try ghostProc.run()
+    } catch {
+        print("[overlay] cannot spawn ghost-live: \(error)")
+        exit(1)
+    }
+
+    // --- player core (own instance) ---
     let rom = loadROM(romPath)
     loadCore()
 
@@ -117,15 +170,16 @@ func runOverlay() {
         Unmanaged<OverlaySink>.fromOpaque(user).takeUnretainedValue().onFrame(frame)
     }
     rr_set_video(rr_video(on_frame: videoCallback, user: sinkHandle))
-    // Same input scheme as the committed calibration (RIGHT hold from frame
-    // 120): proves the ghost bytes move, mirroring the calibration scenario.
-    attachInput(ScriptedInput([(120, [.right])]))
+    attachInput(ScriptedInput([]))
     guard rr_load_game((rom as NSData).bytes, rom.count) == 0 else {
         print("FATAL: rr_load_game failed")
         exit(1)
     }
 
-    let stateSize = rr_serialize_size()
+    // --- shared memory (consumer side) ---
+    var shm = rr_shm()
+    var attached = false
+    var lastFrame: UInt32 = UInt32.max
 
     let app = NSApplication.shared
     app.setActivationPolicy(.regular)
@@ -152,38 +206,37 @@ func runOverlay() {
     overlayWindow.contentView = ghostView
     gameWindow.addChildWindow(overlayWindow, ordered: .above)
 
-    // Calibration (committed profile) located the position bytes at 0x0072.
-    // In the spike we read that offset back each tick to feed the ghost — this
-    // is the "read a few bytes per frame" idea, minus the shared-memory wiring.
-    let offsets = [0x0072, 0x0073]
-    func readPositionBytes() -> [UInt8] {
-        var data = [UInt8](repeating: 0, count: stateSize)
-        let ok = data.withUnsafeMutableBytes { rr_serialize($0.baseAddress, $0.count) == 0 }
-        guard ok else { return [] }
-        return offsets.map { $0 < data.count ? data[$0] : 0 }
-    }
-
     var tick = 0
     let timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { _ in
         tick += 1
         rr_run()
 
-        // player window
         if sink.width > 0, let cg = makeCGImage(rgba: sink.rgba, width: sink.width, height: sink.height) {
             gameView.setImage(cg)
         }
 
-        // ghost overlay: derive a position from the calibrated bytes
-        let bytes = readPositionBytes()
-        if bytes.count == 2 {
-            ghostView.ghostX = CGFloat(bytes[0])
-            ghostView.ghostY = CGFloat(bytes[1])
-            ghostView.ghostVisible = true
-            ghostView.needsDisplay = true
+        // attach to shm lazily (ghost-live may still be booting)
+        if !attached {
+            if rr_shm_open_named(shmName, false, &shm) == 0 {
+                attached = true
+                print("[overlay] attached to shm \(shmName)")
+            }
+        }
+
+        if attached {
+            var slot = rr_shm_slot()
+            if rr_shm_take(&shm, &lastFrame, &slot) {
+                let tileCount = Int(RR_SHM_TILE_W) * Int(RR_SHM_TILE_H) * 4
+                var tile = [UInt8](repeating: 0, count: tileCount)
+                tile.withUnsafeMutableBytes { buf in
+                    rr_shm_slot_tile_copy(&slot, buf.baseAddress?.assumingMemoryBound(to: UInt8.self), UInt32(tileCount))
+                }
+                ghostView.setGhost(x: Int(slot.pos_x), y: Int(slot.pos_y), tile: tile)
+            }
         }
 
         if tick % 120 == 0 {
-            print("[overlay] tick=\(tick) ghost bytes=\(bytes.map { String(format: "%02x", $0) })")
+            print("[overlay] tick=\(tick) attached=\(attached)")
         }
     }
     timer.tolerance = 0.002
