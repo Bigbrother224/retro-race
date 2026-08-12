@@ -46,6 +46,7 @@ func runRaceHeadless(_ args: [String]) {
     var ghostSeen = false
     var lastGhost: (x: Int, y: Int) = (-1, -1)
     var ghostMoved = false
+    var trailSeen = false
 
     for _ in 0..<frames {
         session.step()
@@ -58,10 +59,11 @@ func runRaceHeadless(_ args: [String]) {
             }
             lastGhost = (g.x, g.y)
         }
+        if !session.ghostTrail.isEmpty { trailSeen = true }
     }
 
     print("[race-headless] \(frames) frames, \(framesWithPixels) with pixels (\(session.width)x\(session.height))")
-    print("[race-headless] ghost seen=\(ghostSeen) moved=\(ghostMoved) last=(\(lastGhost.0),\(lastGhost.1))")
+    print("[race-headless] ghost seen=\(ghostSeen) moved=\(ghostMoved) trail=\(trailSeen)(\(session.ghostTrail.count)pts) last=(\(lastGhost.0),\(lastGhost.1))")
 
     let ok = framesWithPixels > 0 && ghostSeen
     print(ok ? "[race-headless] PASS" : "[race-headless] FAIL")

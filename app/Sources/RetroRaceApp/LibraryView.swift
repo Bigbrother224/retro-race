@@ -90,6 +90,8 @@ struct RaceView: View {
     @State private var ghostY = 0
     @State private var ghostTile: [UInt8] = []
     @State private var ghostVisible = false
+    @State private var ghostName = "Rival"   // demo: opponent pseudonym
+    @State private var trail: [RaceSession.TrailPoint] = []
     @State private var status = "Démarrage…"
     @State private var errorText: String?
 
@@ -118,7 +120,8 @@ struct RaceView: View {
 
             GameCanvasView(frame: frame, width: width, height: height,
                            ghostX: ghostX, ghostY: ghostY,
-                           ghostTile: ghostTile, ghostVisible: ghostVisible)
+                           ghostTile: ghostTile, ghostVisible: ghostVisible,
+                           ghostName: ghostName, trail: trail)
                 .aspectRatio(CGFloat(width) / CGFloat(height), contentMode: .fit)
                 .background(Color.black)
 
@@ -180,6 +183,7 @@ struct RaceView: View {
             ghostY = g.y
             ghostTile = g.tile
             ghostVisible = g.visible
+            trail = session.ghostTrail
         }
     }
 

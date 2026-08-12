@@ -20,6 +20,23 @@ public final class RaceSession: @unchecked Sendable {
         }
     }
 
+    /// One point of the ghost trail, in game pixels, with its age in steps.
+    public struct TrailPoint {
+        public let x: Int
+        public let y: Int
+        public let age: Int   // 0 = newest
+
+        public init(x: Int, y: Int, age: Int) {
+            self.x = x
+            self.y = y
+            self.age = age
+        }
+    }
+
+    /// How many trail points the session keeps (drives the trail length).
+    public var trailLength: Int
+    private var trail: [TrailPoint] = []
+
     public private(set) var width = 0
     public private(set) var height = 0
     private var rgb: [UInt8] = []
@@ -34,8 +51,9 @@ public final class RaceSession: @unchecked Sendable {
     private let sink = OverlaySink()
     private var coreLoaded = false
 
-    public init(shmName: String = "retro_race_ghost") {
+    public init(shmName: String = "retro_race_ghost", trailLength: Int = 30) {
         self.shmName = shmName
+        self.trailLength = trailLength
     }
 
     /// Loads the ROM and starts the player core. Call from a background thread.
@@ -83,9 +101,20 @@ public final class RaceSession: @unchecked Sendable {
                 }
                 ghost = GhostState(x: Int(slot.pos_x), y: Int(slot.pos_y),
                                    visible: true, tile: tile)
+                recordTrail()
             }
         }
     }
+
+    /// Samples the ghost position into the trail and ages existing points.
+    private func recordTrail() {
+        trail = trail.map { TrailPoint(x: $0.x, y: $0.y, age: $0.age + 1) }
+            .filter { $0.age < trailLength }
+        trail.append(TrailPoint(x: ghost.x, y: ghost.y, age: 0))
+    }
+
+    /// Ghost trail points, oldest first, in game pixels.
+    public var ghostTrail: [TrailPoint] { trail }
 
     /// The latest rendered player frame (RGBA).
     public var frame: [UInt8] { rgb }
