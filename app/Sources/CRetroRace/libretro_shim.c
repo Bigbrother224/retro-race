@@ -2,6 +2,7 @@
 
 #include <dlfcn.h>
 #include <stdbool.h>
+#include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -97,6 +98,8 @@ static rr_video g_video_sink = {0};
 static const char *g_system_dir = "/tmp";
 static const char *g_save_dir = "/tmp";
 static bool g_need_fullpath = false;
+static char g_tmp_game_path[64];
+static bool g_tmp_game_exists = false;
 
 static bool env_cb(unsigned cmd, void *data) {
     switch (cmd) {
@@ -261,7 +264,11 @@ int rr_load_game(const void *rom, size_t rom_size) {
     if (g_need_fullpath) {
         /* Some cores (e.g. FCEUmm) require a real file path. Write the ROM to
          * a temp file and pass the path, so callers can keep a buffer API. */
-        const char *tmp = "/tmp/retro_race_game.nes";
+        /* PID-suffixed temp file so two concurrent processes (player + ghost)
+         * never clobber each other's ROM while the core has it open. */
+        snprintf(g_tmp_game_path, sizeof(g_tmp_game_path),
+                 "/tmp/retro_race_%ld_game.nes", (long)getpid());
+        const char *tmp = g_tmp_game_path;
         FILE *f = fopen(tmp, "wb");
         if (!f) {
             return -3;
@@ -269,8 +276,11 @@ int rr_load_game(const void *rom, size_t rom_size) {
         size_t written = fwrite(rom, 1, rom_size, f);
         fclose(f);
         if (written != rom_size) {
+            remove(tmp);
+            g_tmp_game_exists = false;
             return -3;
         }
+        g_tmp_game_exists = true;
         info.path = tmp;
     } else {
         info.path = "game.nes";
@@ -292,6 +302,10 @@ void rr_unload_game(void) {
     }
     if (g_deinit) {
         g_deinit();
+    }
+    if (g_tmp_game_exists) {
+        remove(g_tmp_game_path);
+        g_tmp_game_exists = false;
     }
 }
 

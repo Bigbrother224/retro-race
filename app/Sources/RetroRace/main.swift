@@ -65,6 +65,8 @@ let mode = args.count > 1 ? args[1] : "spike"
 switch mode {
 case "spike":
     runSpike()
+case "determinism":
+    runDeterminism(Array(args.dropFirst(2)))
 case "calibrate":
     runCalibrate(Array(args.dropFirst(2)))
 case "calibrate-run":
@@ -75,6 +77,7 @@ default:
     print("""
     Usage:
       RetroRace spike                 determinism + framebuffer check
+      RetroRace determinism [--frames N] [--interval N]
       RetroRace calibrate [--frames N]  spawn 2 children, diff their save states
       RetroRace calibrate-run --out PATH [--hold RIGHT --from 120] [--frames N]
       RetroRace ghost --out PATH        silent ghost: run frames, dump save state

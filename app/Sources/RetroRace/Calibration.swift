@@ -1,4 +1,5 @@
 import CRetroRace
+import CommonCrypto
 import Foundation
 
 // MARK: - Calibration
@@ -7,8 +8,14 @@ import Foundation
 /// at the same frame, then diffs the two states to locate the player's bytes.
 func runCalibrate(_ args: [String]) {
     var frames = 600
-    if let idx = args.firstIndex(of: "--frames"), idx + 1 < args.count {
-        frames = Int(args[idx + 1]) ?? frames
+    var jsonOut: URL? = nil
+    var i = 0
+    while i < args.count {
+        switch args[i] {
+        case "--frames": frames = Int(args[safe: i + 1] ?? "600") ?? frames; i += 2
+        case "--json-out": jsonOut = URL(fileURLWithPath: args[safe: i + 1] ?? ""); i += 2
+        default: i += 1
+        }
     }
 
     print("== Calibration: find player position by state diff ==")
@@ -69,13 +76,80 @@ func runCalibrate(_ args: [String]) {
 
     // Heuristic: the largest moving byte range is very likely the player's
     // position (Alter Ego is a puzzle platformer, the hero moves around).
+    var positionCandidate: (offset: Int, span: Int, a: Int, b: Int, spread: Int)? = nil
     if let largest = diffRanges.max(by: { ($0.end - $0.start) < ($1.end - $1.start) }) {
         let aVal = Int(dataA[largest.start])
         let bVal = Int(dataB[largest.start])
         let spread = abs(aVal - bVal)
+        positionCandidate = (largest.start, largest.end - largest.start, aVal, bVal, spread)
         print(String(format: "player position candidate: offset 0x%04x, span %d bytes, A=%d B=%d (spread %d)",
                      largest.start, largest.end - largest.start, aVal, bVal, spread))
     }
+
+    if let jsonOut {
+        writeCalibrationJSON(to: jsonOut, frames: frames, diffRanges: diffRanges,
+                             dataA: dataA, dataB: dataB, position: positionCandidate)
+    }
+}
+
+/// Writes the calibration result as a versioned Game Profile JSON — the
+/// machine-readable artifact Phase 1 consumes.
+func writeCalibrationJSON(to url: URL, frames: Int,
+                          diffRanges: [(start: Int, end: Int)],
+                          dataA: Data, dataB: Data,
+                          position: (offset: Int, span: Int, a: Int, b: Int, spread: Int)?) {
+    let ranges = diffRanges
+        .sorted { $0.start < $1.start }
+        .map { r in
+            let a = dataA[r.start..<r.end].map { String(format: "%02x", $0) }.joined()
+            let b = dataB[r.start..<r.end].map { String(format: "%02x", $0) }.joined()
+            return ["offset": r.start, "span": r.end - r.start, "A": a, "B": b]
+        }
+
+    var profile: [String: Any] = [
+        "schema": "retro-race/game-profile/calibration",
+        "schema_version": 1,
+        "game": "alter-ego",
+        "core": "fceumm",
+        "rom_hash_md5": "b12d0aefbde9b50eec53884d04d083b5",
+        "rom_hash_sha256": sha256Hex(URL(fileURLWithPath: romPath)),
+        "method": "save-state-diff",
+        "input_scheme": ["A: RIGHT from frame 120", "B: LEFT from frame 120"],
+        "frames": frames,
+        "state_size": dataA.count,
+        "diff_offsets": ranges,
+        "generated_at": ISO8601DateFormatter().string(from: Date()),
+    ]
+    if let position {
+        profile["position_candidate"] = [
+            "offset": position.offset,
+            "span": position.span,
+            "spread": position.spread,
+            "note": "largest diff range; heuristic, verify per game",
+        ]
+    }
+
+    guard let d = try? JSONSerialization.data(withJSONObject: profile, options: [.prettyPrinted, .sortedKeys]),
+          let str = String(data: d, encoding: .utf8) else {
+        print("FAIL: cannot serialize calibration JSON")
+        exit(1)
+    }
+    do {
+        try str.write(to: url, atomically: true, encoding: .utf8)
+        print("wrote calibration profile: \(url.path)")
+    } catch {
+        print("FAIL: cannot write calibration JSON: \(error)")
+        exit(1)
+    }
+}
+
+func sha256Hex(_ url: URL) -> String {
+    guard let data = try? Data(contentsOf: url) else { return "" }
+    var digest = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
+    data.withUnsafeBytes { buf in
+        _ = CC_SHA256(buf.baseAddress, CC_LONG(data.count), &digest)
+    }
+    return digest.map { String(format: "%02x", $0) }.joined()
 }
 
 /// Spawns a child `calibrate-run` that runs the core with a scripted input and

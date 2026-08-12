@@ -112,3 +112,91 @@ func runSpike() {
     rr_unload()
     print("done")
 }
+
+// MARK: - Long-run determinism check
+
+func fnv1a(_ bytes: ArraySlice<UInt8>) -> UInt64 {
+    var hash: UInt64 = 0xcbf29ce484222325
+    for b in bytes {
+        hash ^= UInt64(b)
+        hash &*= 0x100000001b3
+    }
+    return hash
+}
+
+/// Runs a full calibration-style pass with two identical instances replayed
+/// from a saved start state, hashing the framebuffer every `interval` frames.
+/// Long-run determinism: the hash sequence must be byte-identical between the
+/// original run and the restored replay.
+func runDeterminism(_ args: [String]) {
+    var frames = 50_000
+    var interval = 1_000
+    var i = 0
+    while i < args.count {
+        switch args[i] {
+        case "--frames": frames = Int(args[safe: i + 1] ?? "50000") ?? 50_000; i += 2
+        case "--interval": interval = Int(args[safe: i + 1] ?? "1000") ?? 1_000; i += 2
+        default: i += 1
+        }
+    }
+
+    let rom = loadROM(romPath)
+    loadCore()
+    print("== Long determinism check ==")
+    print("frames=\(frames), checkpoint every \(interval) frames")
+
+    let sink = FrameSink()
+    let sinkHandle = Unmanaged.passUnretained(sink).toOpaque()
+    let videoCallback: @convention(c) (rr_frame, UnsafeMutableRawPointer?) -> Void = { frame, user in
+        guard let user else { return }
+        Unmanaged<FrameSink>.fromOpaque(user).takeUnretainedValue().onFrame(frame)
+    }
+    rr_set_video(rr_video(on_frame: videoCallback, user: sinkHandle))
+    attachInput(ScriptedInput([]))
+
+    guard rr_load_game((rom as NSData).bytes, rom.count) == 0 else {
+        print("FATAL: rr_load_game failed")
+        exit(1)
+    }
+
+    guard let startState = serializeState() else {
+        print("FATAL: serialize start state failed")
+        exit(1)
+    }
+    print("start state: \(startState.count) bytes")
+
+    func runSegments() -> [UInt64] {
+        var hashes: [UInt64] = []
+        _ = startState.withUnsafeBytes { rr_unserialize($0.baseAddress, $0.count) }
+        var ran = 0
+        while ran < frames {
+            var target = min(ran + interval, frames)
+            while ran < target {
+                rr_run()
+                ran += 1
+            }
+            hashes.append(fnv1a(sink.bytes[0..<sink.bytes.count]))
+        }
+        return hashes
+    }
+
+    let pass1 = runSegments()
+    let pass2 = runSegments()
+
+    if pass1 == pass2 {
+        print("PASS: \(frames) frames replayed from start state -> identical hash sequence (\(pass1.count) checkpoints)")
+    } else {
+        var first = -1
+        for (i, (a, b)) in zip(pass1, pass2).enumerated() where a != b {
+            first = i
+            break
+        }
+        let frameAt = first < 0 ? -1 : (first + 1) * interval
+        print("FAIL: hash sequence diverged at checkpoint \(first) (frame ~\(frameAt))")
+        print("  pass1[..]: \(pass1.prefix(4))")
+        print("  pass2[..]: \(pass2.prefix(4))")
+    }
+
+    rr_unload_game()
+    rr_unload()
+}
