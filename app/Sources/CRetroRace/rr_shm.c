@@ -29,6 +29,13 @@ int rr_shm_open_named(const char *name, bool publish, rr_shm *out) {
     int oflags = publish ? (O_CREAT | O_RDWR) : O_RDWR;
     mode_t mode = 0600;
 
+    /* A producer wants a fresh region. Unlink first so a stale region from a
+     * previous run (possibly still mapped by a dead consumer) does not make
+     * shm_open/ftruncate fail with EINVAL. */
+    if (publish) {
+        shm_unlink(out->name);
+    }
+
     int fd = shm_open(out->name, oflags, mode);
     if (fd < 0) {
         fprintf(stderr, "rr_shm_open_named: shm_open(%s) failed: %s\n", out->name, strerror(errno));

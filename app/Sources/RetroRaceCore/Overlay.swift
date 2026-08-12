@@ -246,7 +246,7 @@ func runOverlay() {
 }
 
 /// Builds a CGImage from an RGBA byte buffer already converted by OverlaySink.
-func makeCGImage(rgba: [UInt8], width: Int, height: Int) -> CGImage? {
+public func makeCGImage(rgba: [UInt8], width: Int, height: Int) -> CGImage? {
     guard !rgba.isEmpty else { return nil }
     let data = Data(rgba) as CFData
     guard let provider = CGDataProvider(data: data) else { return nil }

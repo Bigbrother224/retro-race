@@ -1,0 +1,42 @@
+{
+  "core" : "fceumm",
+  "diff_offsets" : [
+    {
+      "A" : "8080",
+      "B" : "4040",
+      "offset" : 97,
+      "span" : 2
+    },
+    {
+      "A" : "808080",
+      "B" : "404040",
+      "offset" : 114,
+      "span" : 3
+    },
+    {
+      "A" : "8080",
+      "B" : "4040",
+      "offset" : 4699,
+      "span" : 2
+    }
+  ],
+  "frames" : 400,
+  "game" : "alter-ego",
+  "generated_at" : "2026-08-12T18:40:59Z",
+  "input_scheme" : [
+    "A: RIGHT from frame 120",
+    "B: LEFT from frame 120"
+  ],
+  "method" : "save-state-diff",
+  "position_candidate" : {
+    "note" : "largest diff range; heuristic, verify per game",
+    "offset" : 114,
+    "span" : 3,
+    "spread" : 64
+  },
+  "rom_hash_md5" : "b12d0aefbde9b50eec53884d04d083b5",
+  "rom_hash_sha256" : "5749ebab0287e857e5f860f6c7c8681bdc695905fd43123c5e71f720324936ce",
+  "schema" : "retro-race\/game-profile\/calibration",
+  "schema_version" : 1,
+  "state_size" : 13758
+}

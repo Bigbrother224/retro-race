@@ -14,6 +14,10 @@ The promise is not to remake the games. The promise is:
 
 The product must be light like a retro tool, immediate like a console, and deep like a competitive community.
 
+## What Retro Race is (resolved)
+
+Retro Race **is a light emulator frontend**: it embeds mature libretro cores (C libraries) inside a small native app — it is **not** a wrapper that depends on RetroArch being installed. "Not writing an emulator" means: we reuse mature cores instead of writing CPU/APU/graphics emulation from scratch. Retro Race owns the window, the framebuffer and the Ghost composition. This was the source of a past ambiguity ("layer beside the emulator" vs "embedded frontend"); the embedded frontend is the decision, and a RetroArch adapter (BSV + UDP NCI) is only a fallback backend for games where an embedded core is not satisfactory.
+
 ## Positioning
 
 Not a new general-purpose emulator, not a ROM library, not a streaming service. It is a **local-first competition and community layer** on top of compatible emulation runtimes.

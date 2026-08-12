@@ -80,12 +80,14 @@ func makeSlot() -> rr_shm_slot {
 func runGhostLive(_ args: [String]) {
     var shmName = "retro_race_ghost"
     var frames = -1  // unlimited
+    var calibrationPath: String? = nil
 
     var i = 0
     while i < args.count {
         switch args[i] {
         case "--shm": shmName = args[safe: i + 1] ?? shmName; i += 2
         case "--frames": frames = Int(args[safe: i + 1] ?? "-1") ?? -1; i += 2
+        case "--calibration": calibrationPath = args[safe: i + 1]; i += 2
         default: i += 1
         }
     }
@@ -109,7 +111,22 @@ func runGhostLive(_ args: [String]) {
     }
 
     let stateSize = rr_serialize_size()
-    let calOffset = 0x0072  // committed calibration profile (Alter Ego)
+
+    // Calibration offset from the versioned JSON profile when provided,
+    // else fall back to the committed Alter Ego profile (0x0072).
+    var calOffset = 0x0072
+    if let calibrationPath {
+        let url = URL(fileURLWithPath: calibrationPath)
+        if let data = try? Data(contentsOf: url),
+           let profile = try? JSONDecoder().decode(CalibrationProfile.self, from: data),
+           let cand = profile.positionCandidate {
+            calOffset = cand.offset
+            print("[ghost-live] calibration \(url.lastPathComponent) -> position offset 0x\(String(format: "%04x", calOffset))")
+        } else {
+            print("[ghost-live] WARN: cannot read calibration at \(calibrationPath), using fallback 0x\(String(format: "%04x", calOffset))")
+        }
+    }
+
     func positionBytes() -> (x: Int, y: Int) {
         var data = [UInt8](repeating: 0, count: stateSize)
         let ok = data.withUnsafeMutableBytes { rr_serialize($0.baseAddress, $0.count) == 0 }

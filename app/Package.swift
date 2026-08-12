@@ -12,10 +12,20 @@ let package = Package(
             path: "Sources/CRetroRace",
             publicHeadersPath: "include"
         ),
-        .executableTarget(
-            name: "RetroRace",
+        .target(
+            name: "RetroRaceCore",
             dependencies: ["CRetroRace"],
-            path: "Sources/RetroRace"
+            path: "Sources/RetroRaceCore"
+        ),
+        .executableTarget(
+            name: "RetroRaceCLI",
+            dependencies: ["RetroRaceCore"],
+            path: "Sources/RetroRaceCLI"
+        ),
+        .executableTarget(
+            name: "RetroRaceApp",
+            dependencies: ["RetroRaceCore"],
+            path: "Sources/RetroRaceApp"
         )
     ]
 )
