@@ -170,7 +170,7 @@ func runDeterminism(_ args: [String]) {
         _ = startState.withUnsafeBytes { rr_unserialize($0.baseAddress, $0.count) }
         var ran = 0
         while ran < frames {
-            var target = min(ran + interval, frames)
+            let target = min(ran + interval, frames)
             while ran < target {
                 rr_run()
                 ran += 1

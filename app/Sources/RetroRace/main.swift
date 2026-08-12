@@ -73,6 +73,8 @@ case "calibrate-run":
     runCalibrateRun(Array(args.dropFirst(2)))
 case "ghost":
     runGhost(Array(args.dropFirst(2)))
+case "overlay":
+    runOverlay()
 default:
     print("""
     Usage:
@@ -81,6 +83,7 @@ default:
       RetroRace calibrate [--frames N]  spawn 2 children, diff their save states
       RetroRace calibrate-run --out PATH [--hold RIGHT --from 120] [--frames N]
       RetroRace ghost --out PATH        silent ghost: run frames, dump save state
+      RetroRace overlay                 player window + transparent click-through ghost overlay
     """)
     exit(1)
 }
