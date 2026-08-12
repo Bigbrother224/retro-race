@@ -201,6 +201,7 @@ func (a *App) updateGameInput() {
 	for key, btn := range keys {
 		a.emu.SetButton(btn, inpututil.IsKeyJustPressed(key) || ebiten.IsKeyPressed(key))
 	}
+	a.updateGamepadInput()
 }
 
 func (a *App) stopGame() {
