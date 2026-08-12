@@ -41,12 +41,15 @@ type App struct {
 	running bool
 	img     *ebiten.Image
 
+	// Boxart cache (loaded once per game).
+	boxarts map[boxartKey]*ebiten.Image
+
 	errMsg string
 }
 
 func Run() error {
 	consoles := library.New().Scan(romsDir)
-	a := &App{consoles: consoles, state: stateTitle}
+	a := &App{consoles: consoles, state: stateTitle, boxarts: map[boxartKey]*ebiten.Image{}}
 	ebiten.SetWindowSize(960, 720)
 	ebiten.SetWindowTitle("Retro Race")
 	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)

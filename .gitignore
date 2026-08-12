@@ -14,3 +14,6 @@ app/Roms/
 .DS_Store
 cores/libretro-fceumm/
 cores/libretro-snes9x/
+
+# Boxart images (user-owned content, optional)
+app/Boxart/
