@@ -31,31 +31,41 @@ type Game struct {
 	Console  string // console id
 }
 
-// Console registry. Core paths are relative to the cores directory.
-var Consoles = []Console{
-	{ID: "nes", Name: "NES / Famicom", Core: "libretro-fceumm/fceumm_libretro.dylib", Exts: []string{"nes", "fds"}, Emoji: "🕹️"},
-	{ID: "snes", Name: "Super Nintendo / SNES", Core: "snes9x_libretro.dylib", Exts: []string{"sfc", "smc", "snes"}, Emoji: "🎮"},
-	{ID: "gb", Name: "Game Boy / Color", Core: "gambatte_libretro.dylib", Exts: []string{"gb", "gbc"}, Emoji: "📟"},
-	{ID: "genesis", Name: "Genesis / Mega Drive", Core: "genesis_plus_gx_libretro.dylib", Exts: []string{"gen", "md"}, Emoji: "⚡"},
+// Library is the console registry for a run, populated from a ROM directory.
+type Library struct {
+	Consoles []Console
 }
 
-// Scan scans a ROM directory and returns games grouped by console.
-func Scan(romsDir string) []Console {
+// New returns a Library with the supported console registry. Core paths are
+// relative to the cores directory.
+func New() *Library {
+	return &Library{Consoles: []Console{
+		{ID: "nes", Name: "NES / Famicom", Core: "libretro-fceumm/fceumm_libretro.dylib", Exts: []string{"nes", "fds"}, Emoji: "🕹️"},
+		{ID: "snes", Name: "Super Nintendo / SNES", Core: "snes9x_libretro.dylib", Exts: []string{"sfc", "smc", "snes"}, Emoji: "🎮"},
+		{ID: "gb", Name: "Game Boy / Color", Core: "gambatte_libretro.dylib", Exts: []string{"gb", "gbc"}, Emoji: "📟"},
+		{ID: "genesis", Name: "Genesis / Mega Drive", Core: "genesis_plus_gx_libretro.dylib", Exts: []string{"gen", "md"}, Emoji: "⚡"},
+	}}
+}
+
+// Scan scans a ROM directory and returns the consoles that have matching
+// games, sorted games-first (alphabetical). It mutates only l, never any
+// package-level state.
+func (l *Library) Scan(romsDir string) []Console {
 	entries, err := os.ReadDir(romsDir)
 	if err != nil {
 		return nil
 	}
 
 	extToConsole := map[string]*Console{}
-	for i := range Consoles {
-		for _, e := range Consoles[i].Exts {
-			extToConsole[e] = &Consoles[i]
+	for i := range l.Consoles {
+		for _, e := range l.Consoles[i].Exts {
+			extToConsole[e] = &l.Consoles[i]
 		}
 	}
 
 	// Reset games.
-	for i := range Consoles {
-		Consoles[i].Games = nil
+	for i := range l.Consoles {
+		l.Consoles[i].Games = nil
 	}
 
 	for _, entry := range entries {
@@ -87,13 +97,13 @@ func Scan(romsDir string) []Console {
 	}
 
 	// Sort consoles with games first, games alphabetically.
-	nonEmpty := make([]Console, 0, len(Consoles))
-	for i := range Consoles {
-		if len(Consoles[i].Games) > 0 {
-			sort.Slice(Consoles[i].Games, func(a, b int) bool {
-				return Consoles[i].Games[a].Name < Consoles[i].Games[b].Name
+	nonEmpty := make([]Console, 0, len(l.Consoles))
+	for i := range l.Consoles {
+		if len(l.Consoles[i].Games) > 0 {
+			sort.Slice(l.Consoles[i].Games, func(a, b int) bool {
+				return l.Consoles[i].Games[a].Name < l.Consoles[i].Games[b].Name
 			})
-			nonEmpty = append(nonEmpty, Consoles[i])
+			nonEmpty = append(nonEmpty, l.Consoles[i])
 		}
 	}
 	return nonEmpty

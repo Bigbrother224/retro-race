@@ -45,7 +45,7 @@ type App struct {
 }
 
 func Run() error {
-	consoles := library.Scan(romsDir)
+	consoles := library.New().Scan(romsDir)
 	a := &App{consoles: consoles, state: stateTitle}
 	ebiten.SetWindowSize(960, 720)
 	ebiten.SetWindowTitle("Retro Race")
