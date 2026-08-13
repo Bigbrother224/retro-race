@@ -36,11 +36,10 @@ func gamepadButtonToSNES(b ebiten.StandardGamepadButton) (engine.JoyButton, bool
 	return btn, ok
 }
 
-// updateGamepadInput reads every connected gamepad through the standard
-// positional layout and routes it to the same Emulator seam as the keyboard.
-// AppendGamepadIDs runs each frame, so plugging/unplugging a controller is
-// picked up without a restart.
-func (a *App) updateGamepadInput() {
+// updateGamepadInputInto reads every connected gamepad through the standard
+// positional layout, routes it to the Emulator seam, and fills the button
+// state array for the input recorder.
+func (a *App) updateGamepadInputInto(state *[12]bool) {
 	for _, id := range ebiten.AppendGamepadIDs(nil) {
 		if !ebiten.IsStandardGamepadLayoutAvailable(id) {
 			continue // unknown layout: no reliable positional mapping
@@ -48,6 +47,7 @@ func (a *App) updateGamepadInput() {
 		for gbtn, btn := range snesGamepadButtons {
 			pressed := inpututil.IsStandardGamepadButtonJustPressed(id, gbtn) ||
 				ebiten.IsStandardGamepadButtonPressed(id, gbtn)
+			state[btn] = pressed
 			a.emu.SetButton(btn, pressed)
 		}
 	}

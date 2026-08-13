@@ -4,8 +4,11 @@ import (
 	"fmt"
 	"image/color"
 	"math"
+	"strings"
 
 	"github.com/hajimehoshi/ebiten/v2"
+
+	"retrorace/internal/replay"
 )
 
 // Local race state machine and rendering. The opponent is a simulated second
@@ -106,6 +109,7 @@ type race struct {
 	slowStart   int
 	replayStart int
 	replayTick  int
+	rec         *replay.Recorder // input recorder (lazy, created on first RecordInput)
 }
 
 func newRace(cfg RaceConfig) *race {
@@ -239,6 +243,52 @@ func (r *race) OppProgress() float64 {
 	return math.Min(1, float64(r.frame)/float64(r.cfg.ExpectedFrames))
 }
 
+// RecordInput captures one frame's button state into the input recorder. It is
+// a no-op outside the playing phase. The recorder is created lazily on the
+// first call.
+func (r *race) RecordInput(state []bool) {
+	if r.state != racePlaying {
+		return
+	}
+	if r.rec == nil {
+		r.rec = replay.NewRecorder(len(state))
+	}
+	r.rec.Record(state)
+}
+
+// RunEvents returns the recorded input events, or nil if nothing was recorded.
+func (r *race) RunEvents() []replay.InputEvent {
+	if r.rec == nil {
+		return nil
+	}
+	return r.rec.Events()
+}
+
+// InputDuration returns the number of frames recorded, or 0.
+func (r *race) InputDuration() int {
+	if r.rec == nil {
+		return 0
+	}
+	return r.rec.Duration()
+}
+
+// sanitizeFilename replaces path-unsafe characters with underscores.
+func sanitizeFilename(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		switch r {
+		case '/', '\\', ':', ' ':
+			b.WriteRune('_')
+		default:
+			b.WriteRune(r)
+		}
+	}
+	if b.Len() == 0 {
+		return "replay"
+	}
+	return b.String()
+}
+
 // ---- drawing (Ebitengine) ----
 
 var (
@@ -291,6 +341,11 @@ func (a *App) drawDramaticEnding(screen *ebiten.Image, r *race) {
 	drawPanel(screen, 250, 40, 460, 60, colPanelHi, colAccent)
 	drawText(screen, fmt.Sprintf("%s GAGNE — %.2fs", name, t), 320, 54, 2, colAccent2)
 	drawText(screen, "REPLAY — dernières 5 secondes", 330, 104, 1, colTextDim)
+	drawText(screen, "R: Rejouer le replay   E: Exporter", 330, 120, 1, colTextDim)
+
+	if a.replayMsg != "" {
+		drawText(screen, a.replayMsg, 330, 140, 1, colAccent2)
+	}
 
 	a.renderReplaySide(screen, r, r.replayPlayer, 0, a.emu.Width(), a.emu.Height())
 	a.renderReplaySide(screen, r, r.replayOpp, 1, a.emu2.Width(), a.emu2.Height())

@@ -17,3 +17,6 @@ cores/libretro-snes9x/
 
 # Boxart images (user-owned content, optional)
 app/Boxart/
+
+# Replay exports (user-generated, optional)
+app/Replays/

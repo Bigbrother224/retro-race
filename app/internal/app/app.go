@@ -3,7 +3,9 @@ package app
 import (
 	"fmt"
 	"log"
+	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
@@ -12,6 +14,7 @@ import (
 	"retrorace/internal/arbiter"
 	"retrorace/internal/engine"
 	"retrorace/internal/library"
+	"retrorace/internal/replay"
 )
 
 const (
@@ -54,6 +57,10 @@ type App struct {
 	pipImg     *ebiten.Image
 	pipTick    int
 	replayImgs [2]*ebiten.Image
+
+	// Replay (item 6): deterministic playback of a recorded run.
+	replayPlayer *replay.Player
+	replayMsg    string // export confirmation or error shown in dramatic ending
 
 	errMsg string
 }
@@ -203,6 +210,13 @@ func (a *App) updatePlaying() {
 	if a.emu == nil {
 		return
 	}
+	// Deterministic replay playback: step the recorded run, no race logic.
+	if a.replayPlayer != nil {
+		if !a.replayPlayer.Step() {
+			a.stopGame()
+		}
+		return
+	}
 	if a.race == nil {
 		a.startRace()
 	}
@@ -213,7 +227,8 @@ func (a *App) updatePlaying() {
 
 	switch a.race.State() {
 	case racePlaying:
-		a.updateGameInput()
+		state := a.updateGameInput()
+		a.race.RecordInput(state[:])
 		a.emu.Step()
 		if f := a.emu.Frame(); f != nil {
 			a.race.AddPlayerFrame(f)
@@ -233,7 +248,13 @@ func (a *App) updatePlaying() {
 			a.stepOpponent()
 		}
 	case raceReplay:
-		// Replay playback only; no stepping.
+		// Dramatic ending: R to replay, E to export.
+		if inpututil.IsKeyJustPressed(ebiten.KeyR) {
+			a.startReplay()
+		}
+		if inpututil.IsKeyJustPressed(ebiten.KeyE) {
+			a.exportReplay()
+		}
 	case raceDone:
 		a.stopGame()
 		return
@@ -245,7 +266,7 @@ func (a *App) updatePlaying() {
 // frequency (cheap live window).
 func (a *App) updatePiP(frame []byte) {
 	w, h := a.emu2.Width(), a.emu2.Height()
-	if w <= 0 || h <= 0 {
+	if w == 0 || h == 0 {
 		return
 	}
 	if a.pipImg == nil || a.pipImg.Bounds().Dx() != w || a.pipImg.Bounds().Dy() != h {
@@ -257,9 +278,10 @@ func (a *App) updatePiP(frame []byte) {
 	}
 	a.pipImg.WritePixels(frame)
 }
-
-// updateGameInput maps keyboard keys to logical buttons (SNES-style).
-func (a *App) updateGameInput() {
+// updateGameInput maps keyboard keys to logical buttons (SNES-style) and
+// returns the full button state for the input recorder.
+func (a *App) updateGameInput() [12]bool {
+	var state [12]bool
 	keys := map[ebiten.Key]engine.JoyButton{
 		ebiten.KeyArrowUp:    engine.BtnUp,
 		ebiten.KeyArrowDown:  engine.BtnDown,
@@ -275,9 +297,12 @@ func (a *App) updateGameInput() {
 		ebiten.KeyE:          engine.BtnR,
 	}
 	for key, btn := range keys {
-		a.emu.SetButton(btn, inpututil.IsKeyJustPressed(key) || ebiten.IsKeyPressed(key))
+		pressed := inpututil.IsKeyJustPressed(key) || ebiten.IsKeyPressed(key)
+		state[btn] = pressed
+		a.emu.SetButton(btn, pressed)
 	}
-	a.updateGamepadInput()
+	a.updateGamepadInputInto(&state)
+	return state
 }
 
 func (a *App) stopGame() {
@@ -295,6 +320,81 @@ func (a *App) stopGame() {
 	a.race = nil
 	a.pipImg = nil
 	a.replayImgs = [2]*ebiten.Image{}
+	a.replayPlayer = nil
+	a.replayMsg = ""
+}
+
+// replayCore adapts an engine.Emulator to the replay.Core interface.
+type replayCore struct{ e engine.Emulator }
+
+func (c replayCore) SetButton(b int, pressed bool) { c.e.SetButton(engine.JoyButton(b), pressed) }
+func (c replayCore) Step()                         { c.e.Step() }
+
+// buildRun assembles a replay.Run from the current race and game metadata.
+func (a *App) buildRun() *replay.Run {
+	con := a.consoles[a.selCon]
+	g := con.Games[a.selGame]
+	return &replay.Run{
+		Game:    g.Name,
+		Console: con.ID,
+		Core:    con.Core,
+		ROMHash: g.SHA256,
+		ROMPath: g.Path,
+		Width:   a.emu.Width(),
+		Height:  a.emu.Height(),
+		Events:  a.race.RunEvents(),
+	}
+}
+
+// startReplay stops the current core, starts a fresh one with the recorded
+// game, and begins deterministic playback.
+func (a *App) startReplay() {
+	run := a.buildRun()
+	if len(run.Events) == 0 {
+		a.replayMsg = "Rien à rejouer (aucun input enregistré)"
+		return
+	}
+	if a.emu != nil {
+		a.emu.Stop()
+	}
+	core := engine.NewCore()
+	if err := core.Start(run.ROMPath, run.Core); err != nil {
+		a.errMsg = "replay: " + err.Error()
+		a.emu = nil
+		a.stopGame()
+		return
+	}
+	a.emu = core
+	a.replayPlayer = replay.NewPlayer(run, replayCore{core})
+	a.race = nil
+	a.pipImg = nil
+	a.replayImgs = [2]*ebiten.Image{}
+	a.arbiter.Reset()
+}
+
+// exportReplay serialises the recorded run to a JSON file in app/Replays/.
+func (a *App) exportReplay() {
+	run := a.buildRun()
+	if len(run.Events) == 0 {
+		a.replayMsg = "Rien à exporter (aucun input enregistré)"
+		return
+	}
+	data, err := replay.MarshalRun(run)
+	if err != nil {
+		a.replayMsg = "export: " + err.Error()
+		return
+	}
+	dir := "/Users/mac/retro-race/app/Replays"
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		a.replayMsg = "export: " + err.Error()
+		return
+	}
+	name := sanitizeFilename(run.Game) + "-" + fmt.Sprintf("%d", time.Now().Unix()) + ".json"
+	if err := os.WriteFile(filepath.Join(dir, name), data, 0o644); err != nil {
+		a.replayMsg = "export: " + err.Error()
+		return
+	}
+	a.replayMsg = "Replay exporté : " + name
 }
 
 func (a *App) drawPlaying(screen *ebiten.Image) {
@@ -320,6 +420,13 @@ func (a *App) drawPlaying(screen *ebiten.Image) {
 	op.GeoM.Scale(scale, scale)
 	op.Filter = ebiten.FilterNearest
 	screen.DrawImage(a.img, op)
+
+	// Deterministic replay: game image + label, no race overlays.
+	if a.replayPlayer != nil {
+		drawText(screen, "REPLAY — Échap pour quitter", 20, 16, 1, colAccent2)
+		drawScanlines(screen)
+		return
+	}
 
 	// HUD: game name + hint.
 	con := a.consoles[a.selCon]
