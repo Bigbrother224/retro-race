@@ -9,6 +9,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 
+	"retrorace/internal/arbiter"
 	"retrorace/internal/engine"
 	"retrorace/internal/library"
 )
@@ -44,12 +45,16 @@ type App struct {
 	// Boxart cache (loaded once per game).
 	boxarts map[boxartKey]*ebiten.Image
 
+	// Race Arbiter detects a segment end by screen change.
+	arbiter        *arbiter.Arbiter
+	finishDetected bool
+
 	errMsg string
 }
 
 func Run() error {
 	consoles := library.New().Scan(romsDir)
-	a := &App{consoles: consoles, state: stateTitle, boxarts: map[boxartKey]*ebiten.Image{}}
+	a := &App{consoles: consoles, state: stateTitle, boxarts: map[boxartKey]*ebiten.Image{}, arbiter: arbiter.New(arbiter.DefaultConfig())}
 	ebiten.SetWindowSize(960, 720)
 	ebiten.SetWindowTitle("Retro Race")
 	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
@@ -168,6 +173,8 @@ func (a *App) launch(con library.Console, g library.Game) error {
 	}
 	a.emu = core
 	a.running = true
+	a.arbiter.Reset()
+	a.finishDetected = false
 	return nil
 }
 
@@ -183,6 +190,9 @@ func (a *App) updatePlaying() {
 	}
 	a.updateGameInput()
 	a.emu.Step()
+	if f := a.emu.Frame(); f != nil && a.arbiter.Update(f) == arbiter.SegmentEnd {
+		a.finishDetected = true
+	}
 }
 
 // updateGameInput maps keyboard keys to logical buttons (SNES-style).
@@ -214,6 +224,8 @@ func (a *App) stopGame() {
 	}
 	a.running = false
 	a.state = stateGame
+	a.arbiter.Reset()
+	a.finishDetected = false
 }
 
 func (a *App) drawPlaying(screen *ebiten.Image) {
@@ -245,5 +257,12 @@ func (a *App) drawPlaying(screen *ebiten.Image) {
 	g := con.Games[a.selGame]
 	drawText(screen, fmt.Sprintf("%s — %s", con.Name, g.Name), 20, 16, 1, colTextDim)
 	drawText(screen, "Échap pour revenir au menu", 20, 700, 1, colTextDim)
+
+	// Sober segment-end indicator (the dramatic ending is item 5).
+	if a.finishDetected {
+		drawPanel(screen, 290, 330, 380, 44, colPanelHi, colAccent)
+		drawText(screen, "FIN DE SEGMENT DÉTECTÉE", 326, 340, 2, colAccent2)
+	}
+
 	drawScanlines(screen)
 }
