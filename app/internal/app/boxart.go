@@ -55,7 +55,7 @@ func (a *App) boxartFor(consoleID, gameName string) *ebiten.Image {
 }
 
 // placeholderBoxart draws a procedural pixel-art tile for a game: a
-// console-tinted background, a console-colored frame, a small motif block and
+// console-tinted background, an accent frame, a checkered racing motif and
 // the game name. Used when no local boxart image exists.
 func placeholderBoxart(consoleID, name string) *ebiten.Image {
 	const w, h = 160, 220
@@ -63,19 +63,33 @@ func placeholderBoxart(consoleID, name string) *ebiten.Image {
 	c := consoleColor(consoleID)
 
 	// Dark console-tinted background.
-	img.Fill(color.RGBA{0x18, 0x14, 0x20, 0xff})
+	img.Fill(color.RGBA{0x16, 0x12, 0x1e, 0xff})
 
-	// Accent frame (console color).
-	fillRect(img, 6, 6, w-12, 6, c)    // top
-	fillRect(img, 6, h-12, w-12, 6, c) // bottom
-	fillRect(img, 6, 6, 6, h-12, c)    // left
-	fillRect(img, w-12, 6, 6, h-12, c) // right
+	// Accent frame (console color) with corner brackets.
+	fillRect(img, 6, 6, w-12, 4, c)    // top
+	fillRect(img, 6, h-10, w-12, 4, c) // bottom
+	fillRect(img, 6, 6, 4, h-12, c)    // left
+	fillRect(img, w-10, 6, 4, h-12, c) // right
 
-	// Motif block.
-	fillRect(img, w/2-24, 64, 48, 48, c)
+	// Checkered racing flag motif.
+	const sq = 12
+	cy0 := 56
+	for row := range 4 {
+		for col := range 5 {
+			x := 50 + col*sq
+			y := cy0 + row*sq
+			f := color.Color(color.RGBA{0x1a, 0x16, 0x24, 0xff})
+			if (row+col)%2 == 0 {
+				f = c
+			}
+			fillRect(img, x, y, sq, sq, f)
+		}
+	}
 
 	// Game name, wrapped.
-	drawText(img, wrapLines(name, 14), 10, 132, 1, colText)
+	drawText(img, wrapLines(name, 14), 12, 120, 1, colText)
+	// Console id tag.
+	drawText(img, strings.ToUpper(consoleID), 12, 196, 1, colTextDim)
 
 	return img
 }
