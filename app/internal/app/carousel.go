@@ -16,8 +16,7 @@ type carousel struct {
 
 // step animates the carousel toward its target with easing.
 func (c *carousel) step() {
-	// Move offset toward 0 exponentially (smooth deceleration).
-	c.offset += (0 - c.offset) * 0.18
+	c.offset += (0 - c.offset) * 0.16
 	if math.Abs(c.offset) < 0.001 {
 		c.offset = 0
 	}
@@ -29,43 +28,54 @@ func (c *carousel) snapTo(target int) {
 	c.offset = 0
 }
 
+// glowColor returns a translucent version of c for spotlights.
+func glowColor(c color.Color) color.Color {
+	r, g, b, _ := c.RGBA()
+	return color.RGBA{uint8(r >> 8), uint8(g >> 8), uint8(b >> 8), 0x46}
+}
+
 // drawConsoleScreen draws the console carousel with console art.
 func (a *App) drawConsoleScreen(screen *ebiten.Image) {
 	a.carousel.step()
 	fillRect(screen, 0, 0, 960, 720, colBG)
 
-	// Header
-	drawText(screen, "SELECT CONSOLE", 330, 36, 3, colAccent2)
+	// Header.
+	drawGlow(screen, 480, 90, 560, 120, glowColor(colAccent2))
+	drawText(screen, "SELECT CONSOLE", 356, 46, 3, colAccent2)
+	drawText(screen, "choisis ta machine", 408, 92, 1, colTextDim)
 
-	// Background glow behind center.
-	centerX := 480.0
-	centerY := 330.0
-
-	// Draw all consoles from left to right, farthest first.
+	centerX, centerY := 480.0, 330.0
 	n := len(a.consoles)
+
+	// Glow spotlight behind the focused console (drawn under the art).
+	if n > 0 {
+		cc := consoleColor(a.consoles[a.carousel.target].ID)
+		drawGlow(screen, int(centerX), int(centerY), 460, 340, glowColor(cc))
+	}
+
+	// Draw all consoles, farthest first, sliding smoothly.
 	for i := 0; i < n; i++ {
-		// Position relative to target, with the animated offset.
 		rel := float64(i - a.carousel.target)
 		pos := rel*420 + a.carousel.offset
-		if pos < -660 || pos > 660 {
+		if pos < -700 || pos > 700 {
 			continue
 		}
 		con := a.consoles[i]
 		art := consoleArt(con.ID)
+		cc := consoleColor(con.ID)
 
-		// Scale: center big, sides smaller.
 		dist := math.Abs(pos) / 420.0
-		scale := 1.0 - 0.35*math.Min(dist, 1.0)
+		scale := 1.0 - 0.32*math.Min(dist, 1.0)
 		alpha := 1.0 - 0.55*math.Min(dist, 1.0)
 
 		w := float64(artW) * scale
 		h := float64(artH) * scale
 
-		// Draw a shadowed pedestal under the console.
-		pedW := w * 0.9
-		fillRectF(screen, centerX+pos-pedW/2, centerY+h*0.92, pedW, 14, color.RGBA{0, 0, 0, 90})
+		// Shadowed pedestal under the console.
+		pedW := w * 0.86
+		fillRectF(screen, centerX+pos-pedW/2, centerY+h*0.9, pedW, 14, color.RGBA{0, 0, 0, 96})
 
-		// Console art, dimmed when far.
+		// Console art.
 		op := &ebiten.DrawImageOptions{}
 		op.GeoM.Scale(scale, scale)
 		op.GeoM.Translate(centerX+pos-w/2, centerY-h/2)
@@ -73,44 +83,30 @@ func (a *App) drawConsoleScreen(screen *ebiten.Image) {
 		op.ColorScale.ScaleAlpha(float32(alpha))
 		screen.DrawImage(art, op)
 
-		// Name under the console.
-		drawText(screen, con.Name, int(centerX+pos)-len(con.Name)*7/2, int(centerY+h/2+26), 1, colText)
+		// Name plate under the console, console-tinted.
+		name := con.Name
+		plateW := 40 + textWidth(name)*1
+		if plateW > 300 {
+			plateW = 300
+		}
+		px := int(centerX+pos) - plateW/2
+		py := int(centerY + h/2 + 18)
+		fillRect(screen, px, py, plateW, 26, color.RGBA{0x12, 0x0c, 0x1e, 0xcc})
+		fillRect(screen, px, py, plateW, 3, cc)
+		drawText(screen, name, px+(plateW-textWidth(name))/2, py+7, 1, cc)
 	}
 
-	// Selection frame: brackets around the center console.
-	a.drawSelectionFrame(screen, centerX, centerY)
+	// Selection brackets around the focused console.
+	if n > 0 {
+		bw := artW + artW*4/100
+		bh := artH + artH*12/100
+		drawBrackets(screen, int(centerX), int(centerY-4), bw, bh, 12, 6, colAccent2)
+	}
 
 	// Footer hints.
-	drawPanel(screen, 40, 620, 880, 52, colPanel, colAccent)
-	drawText(screen, "← →  slider      Entrée  sélectionner      Échap  titre", 220, 634, 2, colText)
+	drawPanel(screen, 40, 636, 880, 44, colPanel, colAccent)
+	drawText(screen, "← →  naviguer     Entrée  sélectionner     Échap  titre", 240, 650, 2, colText)
 
 	drawScanlines(screen)
-}
-
-// drawSelectionFrame draws retro corner brackets around the selected console.
-func (a *App) drawSelectionFrame(screen *ebiten.Image, cx, cy float64) {
-	w, h := float64(artW)*1.06, float64(artH)*1.12
-	x, y := cx-w/2, cy-h/2
-	bracket := 26.0
-	thick := 6.0
-	c := colAccent2
-
-	// Four corner brackets.
-	fillRectF(screen, x, y, bracket, thick, c)
-	fillRectF(screen, x, y, thick, bracket, c)
-	fillRectF(screen, x+w-bracket, y, bracket, thick, c)
-	fillRectF(screen, x+w-thick, y, thick, bracket, c)
-	fillRectF(screen, x, y+h-thick, bracket, thick, c)
-	fillRectF(screen, x, y+h-bracket, thick, bracket, c)
-	fillRectF(screen, x+w-bracket, y+h-thick, bracket, thick, c)
-	fillRectF(screen, x+w-thick, y+h-bracket, thick, bracket, c)
-}
-
-// fillRectF fills a float rectangle.
-func fillRectF(screen *ebiten.Image, x, y, w, h float64, c color.Color) {
-	img := ebiten.NewImage(int(math.Ceil(w)), int(math.Ceil(h)))
-	img.Fill(c)
-	op := &ebiten.DrawImageOptions{}
-	op.GeoM.Translate(x, y)
-	screen.DrawImage(img, op)
+	drawVignette(screen)
 }
