@@ -46,8 +46,14 @@ type App struct {
 	boxarts map[boxartKey]*ebiten.Image
 
 	// Race Arbiter detects a segment end by screen change.
-	arbiter        *arbiter.Arbiter
-	finishDetected bool
+	arbiter *arbiter.Arbiter
+
+	// Local race state (item 5): simulated opponent, PiP, gauge, replay.
+	race       *race
+	emu2       engine.Emulator
+	pipImg     *ebiten.Image
+	pipTick    int
+	replayImgs [2]*ebiten.Image
 
 	errMsg string
 }
@@ -174,8 +180,21 @@ func (a *App) launch(con library.Console, g library.Game) error {
 	a.emu = core
 	a.running = true
 	a.arbiter.Reset()
-	a.finishDetected = false
+	a.startRace()
 	return nil
+}
+
+// startRace initializes the local race: the simulated opponent instance and
+// the pure race state machine. The opponent is a FakeCore (Go-only, so it is
+// safe to run alongside the real core; the C shim is single-instance).
+func (a *App) startRace() {
+	a.race = newRace(DefaultRaceConfig())
+	a.emu2 = engine.NewFakeCore(256, 224)
+	_ = a.emu2.Start("", "")
+	a.race.SetOppFrameSize(a.emu2.Width() * a.emu2.Height() * 4)
+	a.pipImg = nil
+	a.pipTick = 0
+	a.replayImgs = [2]*ebiten.Image{}
 }
 
 // ---- playing ----
@@ -184,15 +203,59 @@ func (a *App) updatePlaying() {
 	if a.emu == nil {
 		return
 	}
+	if a.race == nil {
+		a.startRace()
+	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
 		a.stopGame()
 		return
 	}
-	a.updateGameInput()
-	a.emu.Step()
-	if f := a.emu.Frame(); f != nil && a.arbiter.Update(f) == arbiter.SegmentEnd {
-		a.finishDetected = true
+
+	switch a.race.State() {
+	case racePlaying:
+		a.updateGameInput()
+		a.emu.Step()
+		if f := a.emu.Frame(); f != nil {
+			a.race.AddPlayerFrame(f)
+			if a.arbiter.Update(f) == arbiter.SegmentEnd {
+				a.race.PlayerFinished()
+			}
+		}
+		a.stepOpponent()
+		if f := a.emu2.Frame(); f != nil {
+			a.race.AddOppFrame(f)
+			a.updatePiP(f)
+		}
+	case raceSlowmo:
+		// Slow motion: step both instances at a reduced cadence.
+		if a.race.Frame()%4 == 0 {
+			a.emu.Step()
+			a.stepOpponent()
+		}
+	case raceReplay:
+		// Replay playback only; no stepping.
+	case raceDone:
+		a.stopGame()
+		return
 	}
+	a.race.Tick()
+}
+
+// updatePiP uploads the opponent framebuffer to the PiP image at low
+// frequency (cheap live window).
+func (a *App) updatePiP(frame []byte) {
+	w, h := a.emu2.Width(), a.emu2.Height()
+	if w <= 0 || h <= 0 {
+		return
+	}
+	if a.pipImg == nil || a.pipImg.Bounds().Dx() != w || a.pipImg.Bounds().Dy() != h {
+		a.pipImg = ebiten.NewImage(w, h)
+	}
+	a.pipTick++
+	if a.pipTick%6 != 0 {
+		return
+	}
+	a.pipImg.WritePixels(frame)
 }
 
 // updateGameInput maps keyboard keys to logical buttons (SNES-style).
@@ -222,10 +285,16 @@ func (a *App) stopGame() {
 		a.emu.Stop()
 		a.emu = nil
 	}
+	if a.emu2 != nil {
+		a.emu2.Stop()
+		a.emu2 = nil
+	}
 	a.running = false
 	a.state = stateGame
 	a.arbiter.Reset()
-	a.finishDetected = false
+	a.race = nil
+	a.pipImg = nil
+	a.replayImgs = [2]*ebiten.Image{}
 }
 
 func (a *App) drawPlaying(screen *ebiten.Image) {
@@ -258,10 +327,19 @@ func (a *App) drawPlaying(screen *ebiten.Image) {
 	drawText(screen, fmt.Sprintf("%s — %s", con.Name, g.Name), 20, 16, 1, colTextDim)
 	drawText(screen, "Échap pour revenir au menu", 20, 700, 1, colTextDim)
 
-	// Sober segment-end indicator (the dramatic ending is item 5).
-	if a.finishDetected {
-		drawPanel(screen, 290, 330, 380, 44, colPanelHi, colAccent)
-		drawText(screen, "FIN DE SEGMENT DÉTECTÉE", 326, 340, 2, colAccent2)
+	// Local race overlays.
+	if a.race != nil {
+		switch a.race.State() {
+		case racePlaying, raceSlowmo:
+			drawRaceGauge(screen, a.race)
+			drawPiP(screen, a.pipImg)
+			if a.race.State() == raceSlowmo {
+				drawPanel(screen, 330, 300, 300, 40, colPanelHi, colAccent)
+				drawText(screen, "FIN DE SEGMENT — RALENTI", 356, 310, 1, colAccent2)
+			}
+		case raceReplay:
+			a.drawDramaticEnding(screen, a.race)
+		}
 	}
 
 	drawScanlines(screen)
