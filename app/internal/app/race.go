@@ -296,15 +296,34 @@ var (
 	colOpponent = color.RGBA{0x2a, 0x7a, 0xd4, 0xff} // blue (rival)
 )
 
-// drawRaceGauge draws the comparative progress bars (you vs rival).
+// drawRaceGauge draws a thin, elegant progress comparison (you vs rival) as a
+// single translucent bar near the bottom, so it never covers the game's own
+// HUD. You fill from the left (yellow), rival from the right (blue); the
+// leading side is the one whose colored half is longer.
 func drawRaceGauge(screen *ebiten.Image, r *race) {
-	const x, y, w, h = 120, 24, 720, 14
-	fillRect(screen, x, y, w, h, colPanel)
-	fillRect(screen, x, y, int(float64(w)*r.PlayerProgress()), h, colPlayer)
-	fillRect(screen, x, y+h+6, w, h, colPanel)
-	fillRect(screen, x, y+h+6, int(float64(w)*r.OppProgress()), h, colOpponent)
-	drawText(screen, "TOI", x-48, y, 1, colTextDim)
-	drawText(screen, "RIVAL", x-56, y+h+6, 1, colTextDim)
+	const barW = 300.0
+	const barH = 6.0
+	x := (960 - barW) / 2
+	y := 690.0
+
+	// Track (translucent so the game shows through).
+	fillRect(screen, int(x), int(y), int(barW), int(barH), color.RGBA{0xff, 0xff, 0xff, 0x18})
+
+	// You: from the left edge inward.
+	youW := float64(barW) * r.PlayerProgress()
+	if youW > 0 {
+		fillRect(screen, int(x), int(y), int(youW), int(barH), color.RGBA{0xff, 0xd5, 0x3a, 0xd8})
+	}
+	// Rival: from the right edge inward.
+	rivW := float64(barW) * r.OppProgress()
+	if rivW > 0 {
+		fillRect(screen, int(x+barW-rivW), int(y), int(rivW), int(barH), color.RGBA{0x2a, 0x7a, 0xd4, 0xd8})
+	}
+
+	// Center divider + small end labels.
+	fillRect(screen, int(x+barW/2), int(y)-3, 1, int(barH)+6, color.RGBA{0xff, 0xff, 0xff, 0x40})
+	psText(screen, "TOI", x, y+barH+5, 8, colPlayer)
+	psTextR(screen, "RIVAL", x+barW, y+barH+5, 8, colOpponent)
 }
 
 // drawPiP draws the opponent's live framebuffer as a small picture-in-picture
@@ -313,9 +332,11 @@ func drawPiP(screen *ebiten.Image, pip *ebiten.Image) {
 	if pip == nil {
 		return
 	}
-	const pw, ph = 200, 168
+	const pw, ph = 176, 148
 	bx, by := 960-pw-16, 720-ph-16
-	drawPanel(screen, bx-4, by-4, pw+8, ph+8, colPanel, colOpponent)
+
+	// Thin border, no heavy panel.
+	fillRect(screen, bx-2, by-2, pw+4, ph+4, color.RGBA{0xff, 0xff, 0xff, 0x22})
 
 	iw, ih := float64(pip.Bounds().Dx()), float64(pip.Bounds().Dy())
 	if iw == 0 || ih == 0 {
@@ -327,7 +348,7 @@ func drawPiP(screen *ebiten.Image, pip *ebiten.Image) {
 	op.GeoM.Scale(scale, scale)
 	op.GeoM.Translate(float64(bx)+(float64(pw)-iw*scale)/2, float64(by)+(float64(ph)-ih*scale)/2)
 	screen.DrawImage(pip, op)
-	drawText(screen, "RIVAL", bx+8, by+ph-2, 1, colTextDim)
+	psText(screen, "RIVAL", float64(bx+4), float64(by+ph+3), 8, colTextDim)
 }
 
 // drawDramaticEnding renders the finish: winner banner + time, then the last

@@ -428,13 +428,7 @@ func (a *App) drawPlaying(screen *ebiten.Image) {
 		return
 	}
 
-	// HUD: game name + hint.
-	con := a.consoles[a.selCon]
-	g := con.Games[a.selGame]
-	drawText(screen, fmt.Sprintf("%s — %s", con.Name, g.Name), 20, 16, 1, colTextDim)
-	drawText(screen, "Échap pour revenir au menu", 20, 700, 1, colTextDim)
-
-	// Local race overlays.
+	// Local race overlays (clean, non-intrusive over the game).
 	if a.race != nil {
 		switch a.race.State() {
 		case racePlaying, raceSlowmo:
@@ -448,6 +442,9 @@ func (a *App) drawPlaying(screen *ebiten.Image) {
 			a.drawDramaticEnding(screen, a.race)
 		}
 	}
+
+	// Quiet exit hint, bottom-left, small.
+	psText(screen, "ESC  MENU", 20, 700, 9, colTextDim)
 
 	drawScanlines(screen)
 }
