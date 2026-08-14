@@ -116,5 +116,8 @@ func (f *FakeCore) SetButton(button JoyButton, pressed bool) {
 	f.buttons[int(button)] = pressed
 }
 
+// Reset implements Emulator: restarts the animation from frame 0.
+func (f *FakeCore) Reset() { f.frame = 0 }
+
 // Stop implements Emulator.
 func (f *FakeCore) Stop() {}

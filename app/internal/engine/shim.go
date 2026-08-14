@@ -44,6 +44,11 @@ func (c *Core) Start(romPath, corePath string) error {
 	}
 	c.loaded = true
 
+	// Query system info so the C side knows whether this core needs a real
+	// file path (e.g. FCEUmm) before we load the game.
+	var info [256]C.char
+	C.rr_system_info(&info[0], C.size_t(len(info)))
+
 	data, err := os.ReadFile(romPath)
 	if err != nil {
 		return err
@@ -58,6 +63,11 @@ func (c *Core) Start(romPath, corePath string) error {
 // Step implements Emulator.
 func (c *Core) Step() {
 	C.rr_run()
+}
+
+// Reset implements Emulator: restarts the loaded game from its initial state.
+func (c *Core) Reset() {
+	C.rr_reset()
 }
 
 // Frame implements Emulator: RGBA, reused buffer (valid until next Step).

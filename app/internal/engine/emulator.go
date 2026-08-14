@@ -39,6 +39,8 @@ type Emulator interface {
 	Height() int
 	// SetButton updates a logical button state (pressed or released).
 	SetButton(button JoyButton, pressed bool)
+	// Reset restarts the loaded game from its initial state.
+	Reset()
 	// Stop releases the game and the core.
 	Stop()
 }

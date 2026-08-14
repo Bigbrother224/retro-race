@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"image/color"
 	"log"
 	"os"
 	"os/exec"
@@ -46,6 +47,7 @@ type App struct {
 	// Game state
 	emu     engine.Emulator
 	running bool
+	paused  bool
 	img     *ebiten.Image
 
 	// Boxart cache (loaded once per game).
@@ -320,6 +322,19 @@ func (a *App) updatePlaying() {
 		return
 	}
 
+	// Pause / resume (P). While paused the emulator is frozen.
+	if inpututil.IsKeyJustPressed(ebiten.KeyP) {
+		a.paused = !a.paused
+	}
+	if a.paused {
+		// Reset while paused restarts the game from its initial state.
+		if inpututil.IsKeyJustPressed(ebiten.KeyR) {
+			a.emu.Reset()
+			a.arbiter.Reset()
+		}
+		return
+	}
+
 	// Solo play: no race, no arbiter, just play (ESC to return to the menu).
 	if a.race == nil {
 		a.emu.Step()
@@ -428,6 +443,7 @@ func (a *App) stopGame() {
 	}
 	a.stopRival()
 	a.running = false
+	a.paused = false
 	a.state = stateGame
 	a.arbiter.Reset()
 	a.race = nil
@@ -598,6 +614,14 @@ func (a *App) drawPlaying(screen *ebiten.Image) {
 		case raceReplay:
 			a.drawDramaticEnding(screen, a.race)
 		}
+	}
+
+	// Pause overlay: frozen game + controls hint.
+	if a.paused {
+		fillRect(screen, 0, 0, screen.Bounds().Dx(), screen.Bounds().Dy(), color.RGBA{0, 0, 0, 0x60})
+		drawPanel(screen, 300, 260, 360, 90, colPanelHi, colAccent)
+		psTextC(screen, "PAUSE", 480, 282, 24, colText)
+		psTextC(screen, "R  RESET      P  REPRENDRE      ESC  QUITTER", 480, 322, 11, colTextDim)
 	}
 
 	// Quiet exit hint, bottom-left of the game area.
