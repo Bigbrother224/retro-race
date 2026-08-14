@@ -19,4 +19,11 @@ Images et polices embarquées. Toutes sous licence libre.
 
 ## Boxart (user-provided)
 
-`../Boxart/<console>/<jeu>.png` — fournis par l'utilisateur (gitignoré, comme les ROMs).
+`../Boxart/<console>/<jeu>.png` — fournis par l'utilisateur (gitignorés, comme les ROMs). Couvertures actuellement présentes dans la bibliothèque locale :
+
+| Fichier | Jeu | Source |
+|---|---|---|
+| `Boxart/snes/Super Mario World (Europe).png` | Super Mario World (PAL) | [mariowiki — Super Mario World Box EU](https://www.mariowiki.com/File:Super_Mario_World_Box_EU.jpg) |
+| `Boxart/nes/Alter Ego.png` | Alter Ego (homebrew NES) | générée localement à partir du visuel officiel [RetroSouls](https://www.retrosouls.net/?page_id=614) |
+
+Ces couvertures restent locales et ne sont jamais distribuées par le produit.

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image/color"
 	"math"
+	"strings"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )
@@ -23,135 +24,83 @@ func consoleColor(id string) color.Color {
 	return colAccent
 }
 
-// drawTitleScreen shows the arcade boot screen with blinking PRESS START and
-// a console marquee.
-func (a *App) drawTitleScreen(screen *ebiten.Image, frameCount int) {
-	fillRect(screen, 0, 0, 960, 720, colBG)
-
-	// Warm glow behind the logo.
-	drawGlow(screen, 480, 210, 720, 300, glowColor(colAccent))
-
-	// Logo with drop shadow for depth.
-	const logo = "RETRO RACE"
-	logoW := textWidth(logo) * 6
-	lx := (960 - logoW) / 2
-	drawText(screen, logo, lx+7, 187, 6, color.RGBA{0x00, 0x00, 0x00, 0xb0})
-	drawText(screen, logo, lx, 180, 6, colAccent)
-	fillRect(screen, lx+40, 180+6*13+6, logoW-80, 6, colAccent2)
-
-	// Tagline.
-	drawText(screen, "la communauté du jeu rétro", 384, 292, 2, colTextDim)
-
-	// Console marquee: all systems side by side.
-	n := len(a.consoles)
-	if n > 0 {
-		const gw = 170
-		total := n * gw
-		startX := (960 - total) / 2
-		for i := range a.consoles {
-			con := a.consoles[i]
-			art := consoleArt(con.ID)
-			sc := 0.34
-			aw := float64(artW) * sc
-			ah := float64(artH) * sc
-			op := &ebiten.DrawImageOptions{}
-			op.GeoM.Scale(sc, sc)
-			op.GeoM.Translate(float64(startX+i*gw)+float64(gw)/2-aw/2, 380-ah/2)
-			op.Filter = ebiten.FilterNearest
-			screen.DrawImage(art, op)
-			// Console-colored underline below the console.
-			cc := consoleColor(con.ID)
-			fillRect(screen, startX+i*gw+30, 432, gw-60, 4, cc)
-		}
-	}
-
-	// Blinking press start.
-	if (frameCount/30)%2 == 0 {
-		drawGlow(screen, 480, 520, 360, 60, glowColor(colAccent2))
-		drawText(screen, "PRESS START", 384, 508, 3, colText)
-	}
-
-	// Footer hints.
-	drawPanel(screen, 240, 610, 480, 40, colPanel, colAccent)
-	drawText(screen, "Entrée / Espace pour commencer", 296, 622, 1, colTextDim)
-
-	drawScanlines(screen)
-	drawVignette(screen)
+// drawFooter draws the small navigation hint at the bottom of menu screens.
+func drawFooter(screen *ebiten.Image, hint string) {
+	fillRect(screen, 200, 656, 560, 2, colBorder)
+	psTextC(screen, hint, 480, 666, 11, colTextDim)
 }
 
-// drawGameScreen shows the game list of the selected console with a side
-// panel detailing the selected game (boxart + metadata).
+// drawTitleScreen shows the SNES-Mini-style boot screen with blinking
+// PRESS START.
+func (a *App) drawTitleScreen(screen *ebiten.Image, frameCount int) {
+	drawBG(screen)
+
+	// Logo.
+	psTextC(screen, "RETRO RACE", 480, 240, 62, colText)
+	lw := psWidth("RETRO RACE", 62)
+	fillRect(screen, int(480-lw/2)+20, 240+62+16, int(lw)-40, 4, colAccent2)
+
+	// Blinking press start (stable slot: bright / dim).
+	press := color.RGBA{0x33, 0x33, 0x3d, 0xff}
+	if (frameCount/30)%2 == 0 {
+		press = colText
+	}
+	psTextC(screen, "PRESS START", 480, 420, 24, press)
+	psTextC(screen, "ENTER  /  START", 480, 468, 12, colTextDim)
+}
+
+// drawGameScreen shows the SNES-Mini-style horizontal boxart carousel for the
+// selected console. The focused game is centered and enlarged, its name shown
+// below the tile.
 func (a *App) drawGameScreen(screen *ebiten.Image) {
-	fillRect(screen, 0, 0, 960, 720, colBG)
+	drawBG(screen)
 	con := a.consoles[a.selCon]
 	cc := consoleColor(con.ID)
+	n := len(con.Games)
 
-	// Header: console name + back hint.
-	drawGlow(screen, 200, 60, 420, 90, glowColor(cc))
-	drawText(screen, con.Name, 60, 40, 3, cc)
-	drawText(screen, "Échap  retour consoles", 700, 66, 1, colTextDim)
-	fillRect(screen, 60, 92, 320, 4, cc)
+	// Header.
+	psText(screen, con.Name, 40, 26, 14, cc)
+	psTextR(screen, "ESC  BACK", 920, 28, 12, colTextDim)
 
-	// Game list (left).
-	listX, listY, listW, rowH := 40, 132, 480, 58
-	for i, g := range con.Games {
-		y := listY + i*rowH
-		sel := i == a.selGame
-
-		var fill color.Color = colPanel
-		var border color.Color = colPanelHi
-		if sel {
-			fill = colPanelHi
-			border = cc
-		}
-		drawPanel(screen, listX, y, listW, rowH-10, fill, border)
-		if sel {
-			// Left accent bar + arrow marker.
-			fillRect(screen, listX, y, 6, rowH-10, cc)
-			drawText(screen, "▶", listX-30, y+18, 1, cc)
-		}
-		nameCol := colText
-		if !sel {
-			nameCol = colTextDim
-		}
-		drawText(screen, g.Name, listX+26, y+14, 2, nameCol)
-		drawText(screen, fmt.Sprintf("%s · %d Ko", g.Ext, g.Size/1024), listX+26, y+38, 1, colTextDim)
+	if n == 0 {
+		psTextC(screen, "NO GAMES", 480, 356, 22, colTextDim)
+		return
 	}
 
-	// Side panel with the selected game's boxart + details.
+	a.carousel.syncTo(a.selGame, 240)
+
+	const slotW, slotH = 210.0, 300.0
+	const spacing = 250.0
+	cy := 280.0
+
+	for i := range n {
+		rel := float64(i - a.selGame)
+		pos := rel*spacing + a.carousel.offset
+		if pos < -900 || pos > 900 {
+			continue
+		}
+		g := con.Games[i]
+		img := a.boxartFor(con.ID, g.Name)
+		d := math.Abs(rel)
+		scale := 1.0 - 0.28*math.Min(d, 1.0)
+		alpha := 1.0 - 0.45*math.Min(d, 1.0)
+
+		iw, ih := float64(img.Bounds().Dx()), float64(img.Bounds().Dy())
+		s := math.Min(slotW/iw, slotH/ih) * scale
+		w, h := iw*s, ih*s
+		cx := 480.0 + pos
+		depth := 18.0 * scale
+
+		drawBox3D(screen, img, cx, cy, w, h, depth, alpha)
+	}
+
+	// Selected game name + meta below the center tile.
 	sel := con.Games[a.selGame]
-	panelX, panelY, panelW, panelH := 560, 132, 360, 480
-	drawPanel(screen, panelX, panelY, panelW, panelH, colPanel, cc)
-	// Top accent strip inside the panel.
-	fillRect(screen, panelX+8, panelY+8, panelW-16, 4, cc)
+	cx := 480.0 + a.carousel.offset
+	fillRect(screen, 480-260, 466, 520, 2, colBorder)
+	psTextC(screen, sel.Name, cx, 478, 20, colText)
+	psTextC(screen, fmt.Sprintf("FORMAT %s    %d KB", strings.ToUpper(sel.Ext), sel.Size/1024),
+		cx, 478+26+14, 10, colTextDim)
 
-	// Boxart scaled to fit the tile box, preserving aspect, centered.
-	const tileW, tileH = 170.0, 230.0
-	img := a.boxartFor(con.ID, sel.Name)
-	iw, ih := float64(img.Bounds().Dx()), float64(img.Bounds().Dy())
-	scale := math.Min(tileW/iw, tileH/ih)
-	op := &ebiten.DrawImageOptions{}
-	op.Filter = ebiten.FilterNearest
-	op.GeoM.Scale(scale, scale)
-	op.GeoM.Translate(float64(panelX)+(float64(panelW)-tileW)/2+(tileW-iw*scale)/2,
-		float64(panelY)+20+(tileH-ih*scale)/2)
-	screen.DrawImage(img, op)
-
-	// Details.
-	dy := panelY + 20 + tileH + 22
-	drawText(screen, sel.Name, panelX+24, dy, 1, colAccent2)
-	dy += 28
-	drawText(screen, fmt.Sprintf("Console  %s", con.Name), panelX+24, dy, 1, colTextDim)
-	dy += 24
-	drawText(screen, fmt.Sprintf("Format   %s", sel.Ext), panelX+24, dy, 1, colTextDim)
-	dy += 24
-	drawText(screen, fmt.Sprintf("Taille   %d Ko", sel.Size/1024), panelX+24, dy, 1, colTextDim)
-	drawText(screen, fmt.Sprintf("MD5      %s…", sel.MD5[:8]), panelX+24, dy+24, 1, colTextDim)
-
-	// Controls hint.
-	drawPanel(screen, 40, 636, 880, 44, colPanel, colAccent)
-	drawText(screen, "↑ ↓  jeu     Entrée  jouer     Échap  retour", 276, 650, 2, colText)
-
-	drawScanlines(screen)
-	drawVignette(screen)
+	drawFooter(screen, "UP / DOWN  CHOOSE      ENTER  PLAY      ESC  BACK")
 }

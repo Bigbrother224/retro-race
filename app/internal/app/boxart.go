@@ -1,11 +1,13 @@
 package app
 
 import (
+	"image"
 	"image/color"
 	_ "image/png" // register PNG decoder for boxart files
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
@@ -54,43 +56,29 @@ func (a *App) boxartFor(consoleID, gameName string) *ebiten.Image {
 	return img
 }
 
-// placeholderBoxart draws a procedural pixel-art tile for a game: a
-// console-tinted background, an accent frame, a checkered racing motif and
-// the game name. Used when no local boxart image exists.
+// placeholderBoxart draws a clean procedural tile for a game: a dark panel,
+// console-tinted top/bottom bars and the game name centered. Used when no
+// local boxart image exists.
 func placeholderBoxart(consoleID, name string) *ebiten.Image {
 	const w, h = 160, 220
 	img := ebiten.NewImage(w, h)
 	c := consoleColor(consoleID)
 
-	// Dark console-tinted background.
-	img.Fill(color.RGBA{0x16, 0x12, 0x1e, 0xff})
+	img.Fill(color.RGBA{0x11, 0x11, 0x17, 0xff})
+	fillRect(img, 5, 5, w-10, h-10, color.RGBA{0x18, 0x18, 0x20, 0xff})
+	fillRect(img, 5, 5, w-10, 4, c)
+	fillRect(img, 5, h-9, w-10, 4, c)
 
-	// Accent frame (console color) with corner brackets.
-	fillRect(img, 6, 6, w-12, 4, c)    // top
-	fillRect(img, 6, h-10, w-12, 4, c) // bottom
-	fillRect(img, 6, 6, 4, h-12, c)    // left
-	fillRect(img, w-10, 6, 4, h-12, c) // right
-
-	// Checkered racing flag motif.
-	const sq = 12
-	cy0 := 56
-	for row := range 4 {
-		for col := range 5 {
-			x := 50 + col*sq
-			y := cy0 + row*sq
-			f := color.Color(color.RGBA{0x1a, 0x16, 0x24, 0xff})
-			if (row+col)%2 == 0 {
-				f = c
-			}
-			fillRect(img, x, y, sq, sq, f)
-		}
+	// Game name centered.
+	lines := strings.Split(wrapLines(name, 12), "\n")
+	y := float64(h)/2 - float64(len(lines)*16)/2 + 8
+	for _, ln := range lines {
+		psTextC(img, ln, float64(w)/2, y, 11, colText)
+		y += 16
 	}
 
-	// Game name, wrapped.
-	drawText(img, wrapLines(name, 14), 12, 120, 1, colText)
-	// Console id tag.
-	drawText(img, strings.ToUpper(consoleID), 12, 196, 1, colTextDim)
-
+	// Small console tag near the bottom.
+	psTextC(img, strings.ToUpper(consoleID), float64(w)/2, float64(h)-26, 9, colTextDim)
 	return img
 }
 
@@ -107,3 +95,87 @@ func wrapLines(s string, n int) string {
 	}
 	return strings.Join(lines, "\n")
 }
+
+// ---------------------------------------------------------------------------
+// 3D SNES-Mini-style box rendering.
+//
+// The real SNES Classic menu shows each game as a standing box: the front
+// cover plus a darkened right spine and a thin top face, sitting on a soft
+// drop shadow. We fake the same look by drawing the cover, then sheared,
+// darkened edge strips for the spine and top.
+
+var (
+	shadowOnce sync.Once
+	shadowImg  *ebiten.Image // soft vertical fade used as the drop shadow
+)
+
+// buildShadow renders a small vertical fade (solid at top -> transparent at
+// bottom) that we stretch into an ellipse under each box.
+func buildShadow() {
+	const w, h = 64, 16
+	shadowImg = ebiten.NewImage(w, h)
+	for y := range h {
+		t := float64(y) / float64(h)
+		a := uint8(110 * (1 - t) * (1 - t))
+		fillRect(shadowImg, 0, y, w, 1, color.RGBA{0, 0, 0, a})
+	}
+}
+
+// drawBox3D draws the boxart img as a 3D box centered on (cx, cy) with front
+// face w x h and box depth d (right spine + top face), plus a drop shadow.
+// alpha fades the whole box (0..1). Allocation-free: faces are SubImages
+// sheared via GeoM, shadow is cached.
+func drawBox3D(screen *ebiten.Image, img *ebiten.Image, cx, cy, w, h, d, alpha float64) {
+	fx := cx - w/2
+	fy := cy - h/2
+	sw := float64(img.Bounds().Dx())
+	sh := float64(img.Bounds().Dy())
+	a := float32(alpha)
+
+	// Drop shadow: an ellipse under the box.
+	shadowOnce.Do(buildShadow)
+	{
+		op := &ebiten.DrawImageOptions{}
+		shw := w*0.95 + d
+		shh := 14.0
+		op.GeoM.Scale(shw/float64(shadowImg.Bounds().Dx()), shh/float64(shadowImg.Bounds().Dy()))
+		op.GeoM.Translate(cx-shw/2, fy+h-2)
+		op.ColorScale.ScaleAlpha(a * 0.8)
+		screen.DrawImage(shadowImg, op)
+	}
+
+	// Top face: a thin horizontal sliver of the cover, sheared and darkened.
+	{
+		th := d
+		strip := img.SubImage(image.Rect(0, 0, img.Bounds().Dx(), int(sh*0.06))).(*ebiten.Image)
+		op := &ebiten.DrawImageOptions{}
+		op.GeoM.Scale(w/float64(strip.Bounds().Dx()), th/float64(strip.Bounds().Dy()))
+		op.Filter = ebiten.FilterLinear
+		op.ColorScale.Scale(0.5, 0.5, 0.58, a)
+		op.GeoM.Skew(0.2, 0)
+		op.GeoM.Translate(fx, fy-th)
+		screen.DrawImage(strip, op)
+	}
+
+	// Right spine: a thin vertical sliver of the cover, sheared and darkened.
+	{
+		wd := d
+		strip := img.SubImage(image.Rect(0, 0, int(sw*0.06), img.Bounds().Dy())).(*ebiten.Image)
+		op := &ebiten.DrawImageOptions{}
+		op.GeoM.Scale(wd/float64(strip.Bounds().Dx()), h/float64(strip.Bounds().Dy()))
+		op.Filter = ebiten.FilterLinear
+		op.ColorScale.Scale(0.35, 0.35, 0.45, a)
+		op.GeoM.Skew(0, 0.2)
+		op.GeoM.Translate(fx+w, fy)
+		screen.DrawImage(strip, op)
+	}
+
+	// Front cover last so its crisp edges sit on top of the spine/top.
+	op := &ebiten.DrawImageOptions{}
+	op.GeoM.Scale(w/sw, h/sh)
+	op.GeoM.Translate(fx, fy)
+	op.Filter = ebiten.FilterLinear
+	op.ColorScale.ScaleAlpha(a)
+	screen.DrawImage(img, op)
+}
+
