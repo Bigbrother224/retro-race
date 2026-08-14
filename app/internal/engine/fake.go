@@ -3,9 +3,10 @@ package engine
 import "fmt"
 
 // FakeCore is a Go-only Emulator for tests and demo mode. It renders a
-// deterministic animated pattern (a moving bar + gradient) instead of a real
-// game, so the UI and race logic can be exercised without a core dylib or a
-// ROM.
+// deterministic animated racing scene (a scrolling track with a moving car)
+// instead of a real game, so the UI and race logic can be exercised without a
+// core dylib or a ROM. The scene is recognisable as a game so the rival's
+// picture-in-picture window reads as "the opponent playing", not a test tile.
 type FakeCore struct {
 	width, height int
 	frame         int
@@ -38,25 +39,70 @@ func (f *FakeCore) Frame() []byte {
 		return nil
 	}
 	w, h := f.width, f.height
-	barX := (f.frame * 3) % w
+	roadW := w / 3
+	x0 := w / 2
+	// Car sways gently around the centre of the road.
+	carX := x0 + (sway(f.frame*5)/128)*(roadW/2)
+	carY := h/2 + (sway(f.frame*7+40)/128)*(h/6)
 	for y := 0; y < h; y++ {
+		// Dashed centre line scrolls downward with the frame.
+		dash := ((y - f.frame*2) / 14) % 2 == 0
 		for x := 0; x < w; x++ {
 			i := (y*w + x) * 4
-			// Gradient background (blue-ish, darkening with depth).
-			r := byte(20 + (x*40)/w)
-			g := byte(30 + (y*50)/h)
-			b := byte(80 + (x*60)/w)
-			// Moving bar in race color.
-			if x >= barX && x < barX+40 {
-				r, g, b = 255, 94, 58
+			r, g, b := groundPixel(x, y, x0, roadW, dash)
+			// Car: yellow body, dark outline/wheels.
+			dx, dy := x-carX, y-carY
+			if abs(dx) <= 7 && abs(dy) <= 7 {
+				if abs(dx) <= 4 && abs(dy) <= 4 {
+					r, g, b = 255, 213, 58 // body
+				} else {
+					r, g, b = 40, 40, 48 // wheels/edge
+				}
 			}
-			f.rgba[i+0] = r
-			f.rgba[i+1] = g
-			f.rgba[i+2] = b
+			f.rgba[i+0] = byte(r)
+			f.rgba[i+1] = byte(g)
+			f.rgba[i+2] = byte(b)
 			f.rgba[i+3] = 255
 		}
 	}
 	return f.rgba
+}
+
+// sway returns a coarse sine in [-128,127].
+func sway(v int) int {
+	tab := [8]int{0, 45, 90, 127, 90, 45, 0, -45}
+	idx := (v % 8 + 8) % 8
+	return tab[idx]
+}
+
+func abs(v int) int {
+	if v < 0 {
+		return -v
+	}
+	return v
+}
+
+// groundPixel returns grass on the sides, asphalt in the road band, with the
+// dashed centre line already accounted for.
+func groundPixel(x, y, x0, roadW int, dash bool) (int, int, int) {
+	if x < x0-roadW/2 || x > x0+roadW/2 {
+		// Grass.
+		if (x/16)%2 == 0 {
+			return 34, 96, 48
+		}
+		return 28, 82, 40
+	}
+	// Asphalt with a dashed centre line down the middle.
+	if abs(x-x0) <= 3 {
+		if dash {
+			return 230, 230, 230
+		}
+		return 52, 54, 62
+	}
+	if (y/8)%2 == 0 {
+		return 44, 46, 54
+	}
+	return 52, 54, 62
 }
 
 // Width implements Emulator.

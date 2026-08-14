@@ -296,59 +296,87 @@ var (
 	colOpponent = color.RGBA{0x2a, 0x7a, 0xd4, 0xff} // blue (rival)
 )
 
-// drawRaceGauge draws a thin, elegant progress comparison (you vs rival) as a
-// single translucent bar near the bottom, so it never covers the game's own
-// HUD. You fill from the left (yellow), rival from the right (blue); the
-// leading side is the one whose colored half is longer.
-func drawRaceGauge(screen *ebiten.Image, r *race) {
-	const barW = 300.0
-	const barH = 6.0
-	x := (960 - barW) / 2
-	y := 690.0
+// drawRacePanel draws the right-side race dashboard: a header with both
+// players, the rival's live screen (large and labelled), and a clear progress
+// gauge. It lives entirely in the reserved right column, so the game is never
+// covered.
+func (a *App) drawRacePanel(screen *ebiten.Image, r *race) {
+	x := 960 - racePanelW
+	w := racePanelW
 
-	// Track (translucent so the game shows through).
-	fillRect(screen, int(x), int(y), int(barW), int(barH), color.RGBA{0xff, 0xff, 0xff, 0x18})
+	// Panel background so it reads as its own surface, not floating text.
+	fillRect(screen, x, 0, w, 720, color.RGBA{0x0a, 0x0a, 0x10, 0xff})
+	fillRect(screen, x, 0, 2, 720, color.RGBA{0xff, 0xff, 0xff, 0x0d})
 
-	// You: from the left edge inward.
-	youW := float64(barW) * r.PlayerProgress()
-	if youW > 0 {
-		fillRect(screen, int(x), int(y), int(youW), int(barH), color.RGBA{0xff, 0xd5, 0x3a, 0xd8})
-	}
-	// Rival: from the right edge inward.
-	rivW := float64(barW) * r.OppProgress()
-	if rivW > 0 {
-		fillRect(screen, int(x+barW-rivW), int(y), int(rivW), int(barH), color.RGBA{0x2a, 0x7a, 0xd4, 0xd8})
-	}
+	// Header: TOI vs RIVAL.
+	psTextC(screen, "COURSE", float64(x)+float64(w)/2, 24, 12, colTextDim)
+	fillRect(screen, x+16, 52, w-32, 2, colBorder)
+	psText(screen, "TOI", float64(x+18), 66, 11, colPlayer)
+	psTextR(screen, "RIVAL", float64(x+w-18), 66, 11, colOpponent)
 
-	// Center divider + small end labels.
-	fillRect(screen, int(x+barW/2), int(y)-3, 1, int(barH)+6, color.RGBA{0xff, 0xff, 0xff, 0x40})
-	psText(screen, "TOI", x, y+barH+5, 8, colPlayer)
-	psTextR(screen, "RIVAL", x+barW, y+barH+5, 8, colOpponent)
+	// Rival's live screen — the wow: you can see where the opponent is.
+	a.drawRivalScreen(screen, float64(x), float64(w))
+
+	// Progress gauge: clear and readable (two labelled bars).
+	drawRaceGauge(screen, r, float64(x), float64(w))
+
+	// Exit hint at the bottom of the panel.
+	psTextC(screen, "ESC  MENU", float64(x)+float64(w)/2, 700, 9, colTextDim)
 }
 
-// drawPiP draws the opponent's live framebuffer as a small picture-in-picture
-// window in the bottom-right corner.
-func drawPiP(screen *ebiten.Image, pip *ebiten.Image) {
-	if pip == nil {
+// drawRivalScreen renders the opponent's live framebuffer as a large framed
+// window inside the race panel.
+func (a *App) drawRivalScreen(screen *ebiten.Image, px, pw float64) {
+	if a.pipImg == nil {
 		return
 	}
-	const pw, ph = 176, 148
-	bx, by := 960-pw-16, 720-ph-16
-
-	// Thin border, no heavy panel.
-	fillRect(screen, bx-2, by-2, pw+4, ph+4, color.RGBA{0xff, 0xff, 0xff, 0x22})
-
-	iw, ih := float64(pip.Bounds().Dx()), float64(pip.Bounds().Dy())
+	const viewW, viewH = 200, 150
+	// Fit the rival frame into the view, letterboxed.
+	iw, ih := float64(a.pipImg.Bounds().Dx()), float64(a.pipImg.Bounds().Dy())
 	if iw == 0 || ih == 0 {
 		return
 	}
-	scale := math.Min(float64(pw)/iw, float64(ph)/ih)
+	scale := math.Min(viewW/iw, viewH/ih)
+	dw, dh := iw*scale, ih*scale
+	bx := px + (pw-viewW)/2
+	by := 82.0
+
+	// Frame + label above.
+	fillRect(screen, int(bx)-2, int(by)-2, int(viewW)+4, int(viewH)+4, color.RGBA{0xff, 0xff, 0xff, 0x18})
+	psTextC(screen, "RIVAL", bx+viewW/2, by-20, 9, colOpponent)
+
 	op := &ebiten.DrawImageOptions{}
 	op.Filter = ebiten.FilterNearest
 	op.GeoM.Scale(scale, scale)
-	op.GeoM.Translate(float64(bx)+(float64(pw)-iw*scale)/2, float64(by)+(float64(ph)-ih*scale)/2)
-	screen.DrawImage(pip, op)
-	psText(screen, "RIVAL", float64(bx+4), float64(by+ph+3), 8, colTextDim)
+	op.GeoM.Translate(bx+(viewW-dw)/2, by+(viewH-dh)/2)
+	screen.DrawImage(a.pipImg, op)
+}
+
+// drawRaceGauge draws the progress comparison as two clear, labelled bars
+// (you vs rival) inside the race panel.
+func drawRaceGauge(screen *ebiten.Image, r *race, px, pw float64) {
+	const barW = 196.0
+	const barH = 10.0
+	x := px + (pw-barW)/2
+	gy := 250.0
+
+	// You (yellow).
+	psText(screen, "TOI", x, gy-16, 9, colPlayer)
+	fillRect(screen, int(x), int(gy), int(barW), int(barH), color.RGBA{0xff, 0xff, 0xff, 0x14})
+	if p := r.PlayerProgress(); p > 0 {
+		fillRect(screen, int(x), int(gy), int(barW*p), int(barH), colPlayer)
+	}
+
+	// Rival (blue).
+	psText(screen, "RIVAL", x, gy+barH+12, 9, colOpponent)
+	fillRect(screen, int(x), int(gy+barH+28), int(barW), int(barH), color.RGBA{0xff, 0xff, 0xff, 0x14})
+	if p := r.OppProgress(); p > 0 {
+		fillRect(screen, int(x), int(gy+barH+28), int(barW*p), int(barH), colOpponent)
+	}
+
+	// Percentage labels on the right of each bar.
+	psTextR(screen, fmt.Sprintf("%d%%", int(r.PlayerProgress()*100)), x+barW, gy-16, 9, colPlayer)
+	psTextR(screen, fmt.Sprintf("%d%%", int(r.OppProgress()*100)), x+barW, gy+barH+12, 9, colOpponent)
 }
 
 // drawDramaticEnding renders the finish: winner banner + time, then the last

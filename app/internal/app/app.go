@@ -397,6 +397,15 @@ func (a *App) exportReplay() {
 	a.replayMsg = "Replay exporté : " + name
 }
 
+// racePanelW is the width reserved for the race dashboard on the right of the
+// game. The game keeps its native aspect and full pixel quality in the space
+// left over; nothing is ever drawn on top of it.
+const racePanelW = 232
+
+// drawPlaying renders the emulated game in the left part of the window at its
+// native aspect (pixel-perfect, never covered) and, during a race, a clean
+// dashboard on the right showing the rival's screen and the progress gauge —
+// the racing-game idiom: important info has its own space.
 func (a *App) drawPlaying(screen *ebiten.Image) {
 	if a.errMsg != "" {
 		ebitenutil.DebugPrint(screen, a.errMsg)
@@ -413,11 +422,18 @@ func (a *App) drawPlaying(screen *ebiten.Image) {
 	}
 	a.img.WritePixels(frame)
 
-	// Scale to fit, preserve aspect, add scanlines.
 	sw, sh := screen.Bounds().Dx(), screen.Bounds().Dy()
-	scale := min(float64(sw)/float64(w), float64(sh)/float64(h))
+	// In a race the game occupies the left area; in replay it uses the whole
+	// window.
+	gameW := sw
+	if a.race != nil && a.replayPlayer == nil {
+		gameW = sw - racePanelW
+	}
+	scale := min(float64(gameW)/float64(w), float64(sh)/float64(h))
+	dispW, dispH := float64(w)*scale, float64(h)*scale
 	op := &ebiten.DrawImageOptions{}
 	op.GeoM.Scale(scale, scale)
+	op.GeoM.Translate((float64(gameW)-dispW)/2, (float64(sh)-dispH)/2)
 	op.Filter = ebiten.FilterNearest
 	screen.DrawImage(a.img, op)
 
@@ -428,23 +444,24 @@ func (a *App) drawPlaying(screen *ebiten.Image) {
 		return
 	}
 
-	// Local race overlays (clean, non-intrusive over the game).
+	// Race dashboard on the right (the game is never covered).
 	if a.race != nil {
 		switch a.race.State() {
 		case racePlaying, raceSlowmo:
-			drawRaceGauge(screen, a.race)
-			drawPiP(screen, a.pipImg)
+			a.drawRacePanel(screen, a.race)
 			if a.race.State() == raceSlowmo {
-				drawPanel(screen, 330, 300, 300, 40, colPanelHi, colAccent)
-				drawText(screen, "FIN DE SEGMENT — RALENTI", 356, 310, 1, colAccent2)
+				// Centered on the game area, not the whole window.
+				gcx := gameW / 2
+				drawPanel(screen, gcx-150, 300, 300, 40, colPanelHi, colAccent)
+				drawText(screen, "FIN DE SEGMENT — RALENTI", gcx-122, 310, 1, colAccent2)
 			}
 		case raceReplay:
 			a.drawDramaticEnding(screen, a.race)
 		}
 	}
 
-	// Quiet exit hint, bottom-left, small.
-	psText(screen, "ESC  MENU", 20, 700, 9, colTextDim)
+	// Quiet exit hint, bottom-left of the game area.
+	psText(screen, "ESC  MENU", 16, 700, 9, colTextDim)
 
 	drawScanlines(screen)
 }
