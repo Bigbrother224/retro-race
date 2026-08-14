@@ -30,6 +30,7 @@ type state int
 
 const (
 	stateTitle state = iota
+	stateProfile
 	stateConsole
 	stateGame
 	statePlaying
@@ -49,6 +50,11 @@ type App struct {
 	running bool
 	paused  bool
 	img     *ebiten.Image
+
+	// Profile: player name + chosen mode (solo play or race).
+	username string
+	gameMode int // 0 = solo, 1 = race
+	profileAt int // frame when the profile screen was entered
 
 	// Boxart cache (loaded once per game).
 	boxarts map[boxartKey]*ebiten.Image
@@ -93,6 +99,8 @@ func (a *App) Update() error {
 	switch a.state {
 	case stateTitle:
 		a.updateTitle()
+	case stateProfile:
+		a.updateProfile()
 	case stateConsole:
 		a.updateConsole()
 	case stateGame:
@@ -107,6 +115,8 @@ func (a *App) Draw(screen *ebiten.Image) {
 	switch a.state {
 	case stateTitle:
 		a.drawTitleScreen(screen, a.frame)
+	case stateProfile:
+		a.drawProfileScreen(screen)
 	case stateConsole:
 		a.drawConsoleScreen(screen)
 	case stateGame:
@@ -130,6 +140,45 @@ func (a *App) updateTitle() {
 			a.state = stateConsole
 			return
 		}
+		a.state = stateProfile
+		a.profileAt = a.frame
+	}
+}
+
+// ---- profile ----
+
+const (
+	modeSolo = 0
+	modeRace = 1
+)
+
+// updateProfile handles username entry and the solo/race mode choice.
+func (a *App) updateProfile() {
+	// Ignore Enter for a few frames after entering, so the keypress that left
+	// the title screen does not immediately confirm the profile.
+	if a.frame-a.profileAt < 4 {
+		return
+	}
+	// Backspace removes the last character of the username.
+	if inpututil.IsKeyJustPressed(ebiten.KeyBackspace) && len(a.username) > 0 {
+		r := []rune(a.username)
+		a.username = string(r[:len(r)-1])
+	}
+	// Typed characters append to the username (capped for layout).
+	for _, ch := range ebiten.InputChars() {
+		if len([]rune(a.username)) < 18 {
+			a.username += string(ch)
+		}
+	}
+	// Left/Right toggles the mode.
+	if inpututil.IsKeyJustPressed(ebiten.KeyLeft) || inpututil.IsKeyJustPressed(ebiten.KeyQ) {
+		a.gameMode = 0
+	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyRight) || inpututil.IsKeyJustPressed(ebiten.KeyD) {
+		a.gameMode = 1
+	}
+	// Enter/Space confirms and moves to console selection.
+	if inpututil.IsKeyJustPressed(ebiten.KeyEnter) || inpututil.IsKeyJustPressed(ebiten.KeySpace) {
 		a.state = stateConsole
 	}
 }
@@ -185,20 +234,21 @@ func (a *App) updateGameSelect() {
 		}
 		a.state = statePlaying
 		a.running = true
-	}
-	// C starts an explicit race against the rival (solo play is Enter).
-	if inpututil.IsKeyJustPressed(ebiten.KeyC) {
-		g := con.Games[a.selGame]
-		if err := a.launch(con, g); err != nil {
-			a.errMsg = err.Error()
-			return
+		if a.gameMode == modeRace {
+			a.startRace()
 		}
-		a.state = statePlaying
-		a.running = true
-		a.startRace()
 	}
 }
 
+// playerName returns the profile username, or "TOI" if none was entered.
+func (a *App) playerName() string {
+	if a.username != "" {
+		return a.username
+	}
+	return "TOI"
+}
+
+// launch plays the game (solo by default; a race is started explicitly).
 func (a *App) launch(con library.Console, g library.Game) error {
 	corePath := filepath.Join(coresDir, con.Core)
 	log.Printf("launching %s on %s (%s)", g.Name, con.Name, corePath)

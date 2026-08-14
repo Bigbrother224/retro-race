@@ -353,7 +353,7 @@ func (a *App) drawRacePanel(screen *ebiten.Image, r *race) {
 	a.drawRivalScreen(screen, float64(x), float64(w))
 
 	// Progress gauge: clear and readable (two labelled bars).
-	drawRaceGauge(screen, r, float64(x), float64(w))
+	drawRaceGauge(screen, r, a.playerName(), float64(x), float64(w))
 
 	// Exit hint at the bottom of the panel.
 	psTextC(screen, "ESC  MENU", float64(x)+float64(w)/2, 700, 9, colTextDim)
@@ -389,14 +389,14 @@ func (a *App) drawRivalScreen(screen *ebiten.Image, px, pw float64) {
 
 // drawRaceGauge draws the progress comparison as two clear, labelled bars
 // (you vs rival) inside the race panel.
-func drawRaceGauge(screen *ebiten.Image, r *race, px, pw float64) {
+func drawRaceGauge(screen *ebiten.Image, r *race, playerName string, px, pw float64) {
 	const barW = 196.0
 	const barH = 10.0
 	x := px + (pw-barW)/2
 	gy := 258.0
 
-	// You (yellow).
-	psText(screen, "TOI", x, gy-16, 9, colPlayer)
+	// You (playerName).
+	psText(screen, playerName, x, gy-16, 9, colPlayer)
 	fillRect(screen, int(x), int(gy), int(barW), int(barH), color.RGBA{0xff, 0xff, 0xff, 0x14})
 	if p := r.PlayerProgress(); p > 0 {
 		fillRect(screen, int(x), int(gy), int(barW*p), int(barH), colPlayer)
@@ -420,7 +420,8 @@ func drawRaceGauge(screen *ebiten.Image, r *race, px, pw float64) {
 func (a *App) drawDramaticEnding(screen *ebiten.Image, r *race) {
 	drawBG(screen)
 
-	name := "TOI"
+	player := a.playerName()
+	name := player
 	cc := colPlayer
 	if r.Winner() == 2 {
 		name = "RIVAL"
@@ -438,7 +439,7 @@ func (a *App) drawDramaticEnding(screen *ebiten.Image, r *race) {
 	psTextC(screen, "LES DERNIERES SECONDES", 480, 150, 11, colTextDim)
 
 	// Two replay screens, centered vertically (no cropping).
-	a.renderReplaySide(screen, r, r.replayPlayer, 0, "TOI", a.emu.Width(), a.emu.Height())
+	a.renderReplaySide(screen, r, r.replayPlayer, 0, player, a.emu.Width(), a.emu.Height())
 	a.renderReplaySide(screen, r, r.replayOpp, 1, "RIVAL", a.emu.Width(), a.emu.Height())
 
 	// Actions.

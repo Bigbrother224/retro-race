@@ -51,6 +51,53 @@ func (a *App) drawTitleScreen(screen *ebiten.Image, frameCount int) {
 	psTextC(screen, "ENTER  /  START", 480, 468, 12, colTextDim)
 }
 
+// drawProfileScreen shows a card asking for the player name and the chosen
+// mode (solo play or a race against the rival) before entering the launcher.
+func (a *App) drawProfileScreen(screen *ebiten.Image) {
+	drawBG(screen)
+	psTextC(screen, "QUI ES-TU ?", 480, 60, 22, colAccent2)
+
+	// Card.
+	drawPanel(screen, 200, 120, 560, 380, colPanel, colAccent)
+
+	// Username label + field.
+	psTextC(screen, "PSEUDO", 480, 160, 13, colTextDim)
+	field := a.username
+	display := field
+	if (a.frame/30)%2 == 0 {
+		display += "_"
+	}
+	psTextC(screen, display, 480, 196, 20, colText)
+	fillRect(screen, 300, 228, 360, 2, colBorder)
+
+	// Mode choice: two cards side by side.
+	psTextC(screen, "MODE", 480, 270, 13, colTextDim)
+	for i, label := range []string{"SOLO", "COURSE"} {
+		x := 260 + i*240
+		sel := i == a.gameMode
+		var fill color.Color = colPanelHi
+		var border color.Color = colBorder
+		if sel {
+			fill = colPanelHi
+			border = colAccent2
+		}
+		drawPanel(screen, x, 300, 180, 110, fill, border)
+		tc := colTextDim
+		if sel {
+			tc = colAccent2
+		}
+		psTextC(screen, label, float64(x)+90, 332, 18, tc)
+		if label == "SOLO" {
+			psTextC(screen, "Joue seul", float64(x)+90, 366, 10, colTextDim)
+		} else {
+			psTextC(screen, "Contre un rival", float64(x)+90, 366, 10, colTextDim)
+		}
+	}
+
+	psTextC(screen, "TAPE TON PSEUDO   ·   ← / →  MODE   ·   ENTER  OK",
+		480, 470, 10, colTextDim)
+}
+
 // drawGameScreen shows the SNES-Mini-style horizontal boxart carousel for the
 // selected console. The focused game is centered and enlarged, its name shown
 // below the tile with clean spacing.
@@ -104,5 +151,5 @@ func (a *App) drawGameScreen(screen *ebiten.Image) {
 	psTextC(screen, fmt.Sprintf("%s  ·  %d KB", strings.ToUpper(sel.Ext), sel.Size/1024),
 		cx, 492+26+6, 10, colTextDim)
 
-	drawFooter(screen, "ESC  BACK", "ENTER  PLAY      C  COURSE", "UP / DOWN  CHOOSE")
+	drawFooter(screen, "ESC  BACK", "ENTER  PLAY", "UP / DOWN  CHOOSE")
 }
