@@ -355,9 +355,6 @@ func (a *App) drawRivalScreen(screen *ebiten.Image, px, pw float64) {
 	op.Filter = ebiten.FilterNearest
 	op.GeoM.Scale(scale, scale)
 	op.GeoM.Translate(bx+(viewW-dw)/2, by+(viewH-dh)/2)
-	// Strong rival tint (drop red/green, keep blue) so it unmistakably reads
-	// as the opponent's view, not a mirror of your own screen.
-	op.ColorScale.Scale(0.45, 0.5, 1.6, 1)
 	screen.DrawImage(a.pipImg, op)
 }
 
@@ -388,28 +385,42 @@ func drawRaceGauge(screen *ebiten.Image, r *race, px, pw float64) {
 	psTextR(screen, fmt.Sprintf("%d%%", int(r.OppProgress()*100)), x+barW, gy+barH+12, 9, colOpponent)
 }
 
-// drawDramaticEnding renders the finish: winner banner + time, then the last
-// seconds of both screens side by side.
+// drawDramaticEnding renders the finish as a full-screen result: a clean
+// winner banner, then the last seconds of both screens side by side, centered
+// and fully visible.
 func (a *App) drawDramaticEnding(screen *ebiten.Image, r *race) {
+	drawBG(screen)
+
 	name := "TOI"
+	cc := colPlayer
 	if r.Winner() == 2 {
 		name = "RIVAL"
+		cc = colOpponent
 	}
 	t := float64(r.WinnerFinishFrames()) / 60.0
-	drawPanel(screen, 250, 40, 460, 60, colPanelHi, colAccent)
-	drawText(screen, fmt.Sprintf("%s GAGNE — %.2fs", name, t), 320, 54, 2, colAccent2)
-	drawText(screen, "REPLAY — dernières 5 secondes", 330, 104, 1, colTextDim)
-	drawText(screen, "R: Rejouer le replay   E: Exporter", 330, 120, 1, colTextDim)
 
+	// Winner banner: centered, deliberate.
+	psTextC(screen, name+" GAGNE", 480, 56, 30, cc)
+	w := psWidth(name+" GAGNE", 30)
+	fillRect(screen, int(480-w/2)-30, 56+30+14, int(w)+60, 2, cc)
+	psTextC(screen, fmt.Sprintf("%.2f s", t), 480, 56+30+30, 12, colTextDim)
+
+	// Caption above the screens.
+	psTextC(screen, "LES DERNIERES SECONDES", 480, 150, 11, colTextDim)
+
+	// Two replay screens, centered vertically (no cropping).
+	a.renderReplaySide(screen, r, r.replayPlayer, 0, "TOI", a.emu.Width(), a.emu.Height())
+	a.renderReplaySide(screen, r, r.replayOpp, 1, "RIVAL", a.emu.Width(), a.emu.Height())
+
+	// Actions.
+	psTextC(screen, "R  REJOUER      E  EXPORTER      ESC  MENU", 480, 690, 10, colTextDim)
 	if a.replayMsg != "" {
-		drawText(screen, a.replayMsg, 330, 140, 1, colAccent2)
+		psTextC(screen, a.replayMsg, 480, 672, 9, colAccent2)
 	}
-
-	a.renderReplaySide(screen, r, r.replayPlayer, 0, a.emu.Width(), a.emu.Height())
-	a.renderReplaySide(screen, r, r.replayOpp, 1, a.emu.Width(), a.emu.Height())
 }
 
-func (a *App) renderReplaySide(screen *ebiten.Image, r *race, ring *frameRing, side, w, h int) {
+// renderReplaySide draws one side of the final replay in a clean framed panel.
+func (a *App) renderReplaySide(screen *ebiten.Image, r *race, ring *frameRing, side int, label string, w, h int) {
 	if ring == nil || w <= 0 || h <= 0 {
 		return
 	}
@@ -417,17 +428,31 @@ func (a *App) renderReplaySide(screen *ebiten.Image, r *race, ring *frameRing, s
 	if f := ring.Frame(r.ReplayIndex()); f != nil {
 		img.WritePixels(f)
 	}
-	const vw, vh = 440, 340
+	const vw, vh = 430, 330
+	const topY = 176.0
 	baseX := 40
 	if side == 1 {
-		baseX = 480
+		baseX = 490
 	}
+	cc := colPlayer
+	if side == 1 {
+		cc = colOpponent
+	}
+	psTextC(screen, label, float64(baseX)+vw/2, topY-24, 11, cc)
+
 	iw, ih := float64(w), float64(h)
 	scale := math.Min(float64(vw)/iw, float64(vh)/ih)
+	dw, dh := iw*scale, ih*scale
+	bx := float64(baseX) + (float64(vw)-dw)/2
+	by := topY + (float64(vh)-dh)/2
+
+	// Thin frame.
+	fillRect(screen, int(bx)-2, int(by)-2, int(dw)+4, int(dh)+4, color.RGBA{0xff, 0xff, 0xff, 0x18})
+
 	op := &ebiten.DrawImageOptions{}
 	op.Filter = ebiten.FilterNearest
 	op.GeoM.Scale(scale, scale)
-	op.GeoM.Translate(float64(baseX)+(float64(vw)-iw*scale)/2, 460.0)
+	op.GeoM.Translate(bx, by)
 	screen.DrawImage(img, op)
 }
 

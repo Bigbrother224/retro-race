@@ -340,9 +340,9 @@ void rr_unload_game(void) {
     if (g_unload_game) {
         g_unload_game();
     }
-    if (g_deinit) {
-        g_deinit();
-    }
+    /* Note: no g_deinit() here — rr_unload() runs right after and owns the
+     * single deinit; calling it in both places double-deinitializes the core
+     * and crashes on unload at the end of a race. */
     if (g_tmp_game_exists) {
         remove(g_tmp_game_path);
         g_tmp_game_exists = false;
