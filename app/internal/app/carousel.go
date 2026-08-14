@@ -94,12 +94,13 @@ func consolePhotoFallback(id string) *ebiten.Image {
 
 func (a *App) drawConsoleScreen(screen *ebiten.Image) {
 	drawBG(screen)
-	psTextC(screen, "CHOOSE CONSOLE", 480, 34, 18, colTextDim)
+	psTextC(screen, "CHOOSE CONSOLE", 480, 34, 13, colTextDim)
+	fillRect(screen, 400, 54, 160, 2, colBorder)
 
 	n := len(a.consoles)
 	if n == 0 {
 		psTextC(screen, "NO GAMES FOUND", 480, 356, 22, colTextDim)
-		drawFooter(screen, "ADD ROMS TO /Roms AND RESTART")
+		drawFooter(screen, "ESC  BACK", "", "ADD ROMS TO /Roms")
 		return
 	}
 
@@ -107,7 +108,7 @@ func (a *App) drawConsoleScreen(screen *ebiten.Image) {
 
 	const slotW, slotH = 340.0, 300.0
 	const spacing = 400.0
-	cy := 300.0
+	cy := 292.0
 
 	for i := range n {
 		rel := float64(i - a.carousel.target)
@@ -138,8 +139,7 @@ func (a *App) drawConsoleScreen(screen *ebiten.Image) {
 	sel := a.consoles[a.carousel.target]
 	cc := consoleColor(sel.ID)
 	cx := 480.0 + a.carousel.offset
-	fillRect(screen, 480-220, 480, 440, 2, colBorder)
-	psTextC(screen, sel.Name, cx, 496, 22, cc)
+	psTextC(screen, sel.Name, cx, 486, 20, cc)
 
-	drawFooter(screen, "LEFT / RIGHT  CHOOSE      ENTER  OK      ESC  TITLE")
+	drawFooter(screen, "ESC  BACK", "ENTER  OK", "LEFT / RIGHT  CHOOSE")
 }

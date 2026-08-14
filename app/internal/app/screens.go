@@ -24,10 +24,12 @@ func consoleColor(id string) color.Color {
 	return colAccent
 }
 
-// drawFooter draws the small navigation hint at the bottom of menu screens.
-func drawFooter(screen *ebiten.Image, hint string) {
-	fillRect(screen, 200, 656, 560, 2, colBorder)
-	psTextC(screen, hint, 480, 666, 11, colTextDim)
+// drawFooter draws the bottom navigation hint as three anchored groups:
+// left / center / right, small, dim and well-spaced. No heavy divider bar.
+func drawFooter(screen *ebiten.Image, left, center, right string) {
+	psText(screen, left, 48, 678, 11, colTextDim)
+	psTextC(screen, center, 480, 678, 11, colTextDim)
+	psTextR(screen, right, 912, 678, 11, colTextDim)
 }
 
 // drawTitleScreen shows the SNES-Mini-style boot screen with blinking
@@ -51,16 +53,17 @@ func (a *App) drawTitleScreen(screen *ebiten.Image, frameCount int) {
 
 // drawGameScreen shows the SNES-Mini-style horizontal boxart carousel for the
 // selected console. The focused game is centered and enlarged, its name shown
-// below the tile.
+// below the tile with clean spacing.
 func (a *App) drawGameScreen(screen *ebiten.Image) {
 	drawBG(screen)
 	con := a.consoles[a.selCon]
 	cc := consoleColor(con.ID)
 	n := len(con.Games)
 
-	// Header.
-	psText(screen, con.Name, 40, 26, 14, cc)
-	psTextR(screen, "ESC  BACK", 920, 28, 12, colTextDim)
+	// Quiet console header: small label, thin rule, far from the box.
+	psTextC(screen, con.Name, 480, 22, 11, cc)
+	w := psWidth(con.Name, 11)
+	fillRect(screen, int(480-w/2)-6, 42, int(w)+12, 2, cc)
 
 	if n == 0 {
 		psTextC(screen, "NO GAMES", 480, 356, 22, colTextDim)
@@ -69,9 +72,9 @@ func (a *App) drawGameScreen(screen *ebiten.Image) {
 
 	a.carousel.syncTo(a.selGame, 240)
 
-	const slotW, slotH = 210.0, 300.0
-	const spacing = 250.0
-	cy := 280.0
+	const slotW, slotH = 220.0, 316.0
+	const spacing = 256.0
+	cy := 300.0
 
 	for i := range n {
 		rel := float64(i - a.selGame)
@@ -89,18 +92,17 @@ func (a *App) drawGameScreen(screen *ebiten.Image) {
 		s := math.Min(slotW/iw, slotH/ih) * scale
 		w, h := iw*s, ih*s
 		cx := 480.0 + pos
-		depth := 18.0 * scale
+		depth := 16.0 * scale
 
 		drawBox3D(screen, img, cx, cy, w, h, depth, alpha)
 	}
 
-	// Selected game name + meta below the center tile.
+	// Selected game: name + meta, cleanly spaced below the box.
 	sel := con.Games[a.selGame]
 	cx := 480.0 + a.carousel.offset
-	fillRect(screen, 480-260, 466, 520, 2, colBorder)
-	psTextC(screen, sel.Name, cx, 478, 20, colText)
-	psTextC(screen, fmt.Sprintf("FORMAT %s    %d KB", strings.ToUpper(sel.Ext), sel.Size/1024),
-		cx, 478+26+14, 10, colTextDim)
+	psTextC(screen, sel.Name, cx, 492, 20, colText)
+	psTextC(screen, fmt.Sprintf("%s  ·  %d KB", strings.ToUpper(sel.Ext), sel.Size/1024),
+		cx, 492+26+6, 10, colTextDim)
 
-	drawFooter(screen, "UP / DOWN  CHOOSE      ENTER  PLAY      ESC  BACK")
+	drawFooter(screen, "ESC  BACK", "ENTER  PLAY", "UP / DOWN  CHOOSE")
 }
