@@ -25,11 +25,20 @@ type Run struct {
 	ROMPath string       `json:"rom_path,omitempty"`
 	Width   int          `json:"width"`
 	Height  int          `json:"height"`
+	// Frames is the total number of frames recorded. It is stored because
+	// Events only hold button CHANGES: a player holding a button (running
+	// right) produces one event but many frames. The replay must run for the
+	// full duration, not just until the last change.
+	Frames  int          `json:"duration"`
 	Events  []InputEvent `json:"events"`
 }
 
-// Duration returns the run's frame count (the last event frame, or 0).
+// Duration returns the run's frame count: the explicit recorded duration when
+// set, otherwise derived from the last event frame (backwards compatibility).
 func (r *Run) Duration() int {
+	if r.Frames > 0 {
+		return r.Frames
+	}
 	if len(r.Events) == 0 {
 		return 0
 	}

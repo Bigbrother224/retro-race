@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -15,6 +17,7 @@ import (
 	"retrorace/internal/engine"
 	"retrorace/internal/library"
 	"retrorace/internal/replay"
+	"retrorace/internal/shm"
 )
 
 const (
@@ -51,12 +54,18 @@ type App struct {
 	// Race Arbiter detects a segment end by screen change.
 	arbiter *arbiter.Arbiter
 
-	// Local race state (item 5): simulated opponent, PiP, gauge, replay.
+	// Local race state (item 5): real rival process, PiP, gauge, replay.
 	race       *race
 	pipImg     *ebiten.Image
-	pipTick    int
-	pipDelay   *frameRing // recent player frames; the rival view lags a little
 	replayImgs [2]*ebiten.Image
+
+	// Real rival: a headless process running its own core, publishing its
+	// framebuffer + state over shared memory (the product's two-process race).
+	rivalProc   *os.Process
+	rivalCmd    *exec.Cmd
+	rivalCons   *shm.Consumer
+	rivalShm    string
+	rivalFinish int // -1 until the rival's real finish arrives
 
 	// Replay (item 6): deterministic playback of a recorded run.
 	replayPlayer *replay.Player
@@ -191,16 +200,94 @@ func (a *App) launch(con library.Console, g library.Game) error {
 	return nil
 }
 
-// startRace initializes the local race state machine. The opponent plays the
-// same segment the player is playing (the product concept: a parallel race),
-// so its view is the player's own game a few frames behind — no separate
-// emulator instance is needed.
+// startRace launches a real rival: a headless process running its own core on
+// the same ROM, publishing its framebuffer and race state over shared memory.
+// This is the product's "one process per player" architecture — the rival is a
+// genuine second emulator instance, not a delayed copy of the player's game.
 func (a *App) startRace() {
 	a.race = newRace(DefaultRaceConfig())
 	a.pipImg = nil
-	a.pipDelay = nil
-	a.pipTick = 0
 	a.replayImgs = [2]*ebiten.Image{}
+	a.rivalFinish = -1
+
+	if a.emu == nil {
+		return
+	}
+	con := a.consoles[a.selCon]
+	g := con.Games[a.selGame]
+
+	// Spawn the headless rival with the same ROM/core.
+	self, err := os.Executable()
+	if err != nil {
+		log.Printf("rival: cannot find executable: %v", err)
+		return
+	}
+	a.rivalShm = fmt.Sprintf("/tmp/retro_race_rival_%d.shm", os.Getpid())
+	os.Remove(a.rivalShm)
+
+	run := a.findRunFor(g)
+	args := []string{"--rival", "--rom", g.Path, "--core", filepath.Join(coresDir, con.Core),
+		"--shm", a.rivalShm, "--expected", fmt.Sprintf("%d", DefaultRaceConfig().ExpectedFrames)}
+	if run != "" {
+		args = append(args, "--run", run)
+	}
+	cmd := exec.Command(self, args...)
+	cmd.Env = os.Environ()
+	if stderr, err := cmd.StderrPipe(); err == nil {
+		go func() {
+			buf := make([]byte, 4096)
+			for {
+				n, _ := stderr.Read(buf)
+				if n == 0 {
+					return
+				}
+				log.Printf("rival(stderr): %s", string(buf[:n]))
+			}
+		}()
+	}
+	if err := cmd.Start(); err != nil {
+		log.Printf("rival: spawn failed: %v", err)
+		a.rivalShm = ""
+		return
+	}
+	a.rivalCmd = cmd
+	a.rivalProc = cmd.Process
+
+	// Wait for the rival to create the region, then map it (the SNES core can
+	// take a couple of seconds to load).
+	for i := 0; i < 200; i++ {
+		if cons, err := shm.OpenConsumer(a.rivalShm); err == nil {
+			a.rivalCons = cons
+			break
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+	if a.rivalCons == nil {
+		log.Printf("rival: consumer open failed")
+	}
+}
+
+// findRunFor returns the most recent recorded run for the game, if any.
+func (a *App) findRunFor(g library.Game) string {
+	dir := "/Users/mac/retro-race/app/Replays"
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return ""
+	}
+	prefix := sanitizeFilename(g.Name) + "-"
+	best := ""
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasPrefix(e.Name(), prefix) || !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		if e.Name() > best {
+			best = e.Name()
+		}
+	}
+	if best == "" {
+		return ""
+	}
+	return filepath.Join(dir, best)
 }
 
 // ---- playing ----
@@ -231,9 +318,8 @@ func (a *App) updatePlaying() {
 		a.emu.Step()
 		if f := a.emu.Frame(); f != nil {
 			a.race.AddPlayerFrame(f)
-			// The rival plays the same segment, so its view is your own game
-			// a few frames behind, tinted — not a scripted placeholder.
-			a.feedRivalView(f)
+			// Real rival: read its live framebuffer + state from shared memory.
+			a.consumeRival()
 			if a.arbiter.Update(f) == arbiter.SegmentEnd {
 				a.race.PlayerFinished()
 			}
@@ -252,48 +338,45 @@ func (a *App) updatePlaying() {
 			a.exportReplay()
 		}
 	case raceDone:
+		// Persist this run so the next race replays it as the rival ("Beat
+		// this Ghost").
+		a.saveRun()
 		a.stopGame()
 		return
 	}
 	a.race.Tick()
 }
 
-// feedRivalView keeps a short history of the player's own frames and, at low
-// frequency, publishes a slightly-delayed frame as the rival's view — the
-// opponent is playing the same segment you are.
-func (a *App) feedRivalView(frame []byte) {
-	sz := len(frame)
-	if a.pipDelay == nil || a.pipDelay.size() != sz {
-		// ~15 frames of history gives a noticeable but short "rival lag".
-		a.pipDelay = newFrameRing(sz, 15, 1)
-	}
-	a.pipDelay.Add(frame)
-	// Record the opponent's replay from the same segment (the rival plays your
-	// game), so the dramatic ending shows both sides coherently.
-	if a.race != nil {
-		a.race.AddOppFrame(frame)
-	}
-	a.pipTick++
-	if a.pipTick%6 != 0 {
+// consumeRival reads the rival's latest published frame + state from shared
+// memory: its framebuffer drives the PiP, and its real progress/finish drive
+// the race.
+func (a *App) consumeRival() {
+	if a.rivalCons == nil {
 		return
 	}
-	// Show a frame a few samples old so it reads as the rival, not a mirror.
-	idx := a.pipDelay.Len() - 3
-	if idx < 0 {
-		idx = 0
-	}
-	d := a.pipDelay.Frame(idx)
-	if d == nil {
+	snap := a.rivalCons.Take()
+	if snap == nil {
 		return
 	}
-	w, h := a.emu.Width(), a.emu.Height()
-	if w == 0 || h == 0 {
-		return
+
+	// PiP: the rival's real framebuffer.
+	w, h := snap.Width, snap.Height
+	if len(snap.Frame) > 0 && w > 0 && h > 0 && w*h*4 == len(snap.Frame) && a.race != nil {
+		if a.pipImg == nil || a.pipImg.Bounds().Dx() != w || a.pipImg.Bounds().Dy() != h {
+			a.pipImg = ebiten.NewImage(w, h)
+		}
+		a.pipImg.WritePixels(snap.Frame)
+		a.race.AddOppFrame(snap.Frame)
 	}
-	if a.pipImg == nil || a.pipImg.Bounds().Dx() != w || a.pipImg.Bounds().Dy() != h {
-		a.pipImg = ebiten.NewImage(w, h)
+
+	// Real finish: the rival's arbiter detected a segment end on ITS screen.
+	if snap.State == shm.StateDone && a.rivalFinish < 0 {
+		a.rivalFinish = int(snap.FinishFrame)
+		a.race.OppFinished()
 	}
-	a.pipImg.WritePixels(d)
+
+	// Real progress feeds the gauge.
+	a.race.SetOppProgress(float64(snap.Progress) / 1000.0)
 }
 // updateGameInput maps keyboard keys to logical buttons (SNES-style) and
 // returns the full button state for the input recorder.
@@ -327,15 +410,34 @@ func (a *App) stopGame() {
 		a.emu.Stop()
 		a.emu = nil
 	}
+	a.stopRival()
 	a.running = false
 	a.state = stateGame
 	a.arbiter.Reset()
 	a.race = nil
 	a.pipImg = nil
-	a.pipDelay = nil
 	a.replayImgs = [2]*ebiten.Image{}
 	a.replayPlayer = nil
 	a.replayMsg = ""
+}
+
+// stopRival terminates the headless rival process and releases the shm region.
+func (a *App) stopRival() {
+	if a.rivalCons != nil {
+		a.rivalCons.Close()
+		a.rivalCons = nil
+	}
+	if a.rivalProc != nil {
+		a.rivalProc.Kill()
+		a.rivalProc.Wait()
+		a.rivalProc = nil
+	}
+	a.rivalCmd = nil
+	if a.rivalShm != "" {
+		os.Remove(a.rivalShm)
+		a.rivalShm = ""
+	}
+	a.rivalFinish = -1
 }
 
 // replayCore adapts an engine.Emulator to the replay.Core interface.
@@ -349,14 +451,15 @@ func (a *App) buildRun() *replay.Run {
 	con := a.consoles[a.selCon]
 	g := con.Games[a.selGame]
 	return &replay.Run{
-		Game:    g.Name,
-		Console: con.ID,
-		Core:    con.Core,
-		ROMHash: g.SHA256,
-		ROMPath: g.Path,
-		Width:   a.emu.Width(),
-		Height:  a.emu.Height(),
-		Events:  a.race.RunEvents(),
+		Game:     g.Name,
+		Console:  con.ID,
+		Core:     con.Core,
+		ROMHash:  g.SHA256,
+		ROMPath:  g.Path,
+		Width:    a.emu.Width(),
+		Height:   a.emu.Height(),
+		Frames:   a.race.InputDuration(),
+		Events:   a.race.RunEvents(),
 	}
 }
 
@@ -387,28 +490,35 @@ func (a *App) startReplay() {
 }
 
 // exportReplay serialises the recorded run to a JSON file in app/Replays/.
-func (a *App) exportReplay() {
+// saveRun writes the recorded run to app/Replays/ so a later race can replay
+// it as the rival ("Beat this Ghost"). Returns the written filename or "".
+func (a *App) saveRun() string {
 	run := a.buildRun()
 	if len(run.Events) == 0 {
-		a.replayMsg = "Rien à exporter (aucun input enregistré)"
-		return
+		return ""
 	}
 	data, err := replay.MarshalRun(run)
 	if err != nil {
-		a.replayMsg = "export: " + err.Error()
-		return
+		return ""
 	}
 	dir := "/Users/mac/retro-race/app/Replays"
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		a.replayMsg = "export: " + err.Error()
-		return
+		return ""
 	}
 	name := sanitizeFilename(run.Game) + "-" + fmt.Sprintf("%d", time.Now().Unix()) + ".json"
 	if err := os.WriteFile(filepath.Join(dir, name), data, 0o644); err != nil {
-		a.replayMsg = "export: " + err.Error()
-		return
+		return ""
 	}
-	a.replayMsg = "Replay exporté : " + name
+	return name
+}
+
+// exportReplay serialises the recorded run to a JSON file in app/Replays/.
+func (a *App) exportReplay() {
+	if name := a.saveRun(); name != "" {
+		a.replayMsg = "Replay exporté : " + name
+	} else {
+		a.replayMsg = "Rien à exporter (aucun input enregistré)"
+	}
 }
 
 // racePanelW is the width reserved for the race dashboard on the right of the

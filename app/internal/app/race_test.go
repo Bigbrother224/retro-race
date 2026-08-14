@@ -34,15 +34,13 @@ func TestFrameRingWrapKeepsNewest(t *testing.T) {
 }
 
 func TestRacePlayerWinsWhenFinishingFirst(t *testing.T) {
-	cfg := DefaultRaceConfig()
-	cfg.OpponentFinishFrames = 1000 // opponent finishes much later
-	r := newRace(cfg)
+	r := newRace(DefaultRaceConfig())
 	r.AddOppFrame([]byte{9, 9, 9, 9})
 
 	for i := 0; i < 10; i++ {
 		r.Tick()
 	}
-	r.PlayerFinished()
+	r.PlayerFinished() // player finishes at frame 10
 	if r.State() != raceSlowmo {
 		t.Fatalf("state=%v want slowmo", r.State())
 	}
@@ -51,18 +49,23 @@ func TestRacePlayerWinsWhenFinishingFirst(t *testing.T) {
 	}
 }
 
-func TestRaceOpponentWinsWhenScriptedEarlier(t *testing.T) {
-	cfg := DefaultRaceConfig()
-	cfg.OpponentFinishFrames = 20
-	r := newRace(cfg)
+func TestRaceOpponentWinsWhenRealFinishArrives(t *testing.T) {
+	r := newRace(DefaultRaceConfig())
 	r.AddOppFrame([]byte{9, 9, 9, 9})
 
-	for i := 0; i < 25; i++ {
-		r.Tick() // opponent finishes at frame 20
+	// The rival really finishes (via its own arbiter, delivered over shared
+	// memory) before the player reaches the end.
+	r.OppFinished()
+	if r.State() != raceSlowmo {
+		t.Fatalf("state=%v want slowmo after real rival finish", r.State())
 	}
-	r.PlayerFinished() // player finishes at frame 25, after the opponent
 	if r.Winner() != 2 {
 		t.Fatalf("winner=%d want opponent (2)", r.Winner())
+	}
+	// A later player finish must not overturn the rival's win.
+	r.PlayerFinished()
+	if r.Winner() != 2 {
+		t.Fatalf("winner=%d want opponent (2) after late player finish", r.Winner())
 	}
 }
 
@@ -139,16 +142,20 @@ func TestRaceProgress(t *testing.T) {
 }
 
 func TestRaceWinnerTime(t *testing.T) {
-	cfg := DefaultRaceConfig()
-	cfg.OpponentFinishFrames = 30
-	r := newRace(cfg)
+	r := newRace(DefaultRaceConfig())
 	r.AddOppFrame([]byte{9, 9, 9, 9})
 
-	for i := 0; i < 40; i++ {
+	for i := 0; i < 10; i++ {
+		r.Tick()
+	}
+	// Rival finishes at the current frame; the player finishes later.
+	r.OppFinished()
+	rivalFrame := r.frame
+	for i := 0; i < 20; i++ {
 		r.Tick()
 	}
 	r.PlayerFinished()
-	if r.Winner() != 2 || r.WinnerFinishFrames() != 30 {
-		t.Fatalf("winner=%d time=%d want opponent(2) at 30", r.Winner(), r.WinnerFinishFrames())
+	if r.Winner() != 2 || r.WinnerFinishFrames() != rivalFrame {
+		t.Fatalf("winner=%d time=%d want opponent(2) at %d", r.Winner(), r.WinnerFinishFrames(), rivalFrame)
 	}
 }

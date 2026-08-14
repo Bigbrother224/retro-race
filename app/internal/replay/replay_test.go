@@ -109,3 +109,48 @@ func TestPlayerEmptyRunEndsImmediately(t *testing.T) {
 		t.Fatalf("empty run stepped %d times, want 1 (start frame only)", len(fc.steps))
 	}
 }
+
+// TestPlayerHeldButtonRunsFullDuration guards the real replay contract: a
+// player holding a button (e.g. running right) records ONE event but hundreds
+// of frames. The replay must run for the stored Frames, not just until the
+// last input change — otherwise a rival replaying the run "finishes" after a
+// single frame.
+func TestPlayerHeldButtonRunsFullDuration(t *testing.T) {
+	run := &Run{
+		Frames: 300, // real recorded duration
+		Events: []InputEvent{{Frame: 0, Button: 7, Pressed: true}},
+	}
+	fc := &fakeCore{}
+	p := NewPlayer(run, fc)
+
+	steps := 0
+	for p.Step() {
+		steps++
+	}
+	if steps != run.Frames {
+		t.Fatalf("replay ran %d steps, want %d (full recorded duration)", steps, run.Frames)
+	}
+	// The held button stays down for every frame.
+	for i := 0; i < len(fc.steps); i++ {
+		if !fc.steps[i][7] {
+			t.Fatalf("held button 7 released on replay frame %d", i)
+		}
+	}
+}
+
+// TestRunDurationPrefersStoredFrames guards serialization round-trip of the
+// explicit duration.
+func TestRunDurationPrefersStoredFrames(t *testing.T) {
+	run := &Run{Frames: 300, Events: []InputEvent{{Frame: 0, Button: 7, Pressed: true}}}
+	data, err := MarshalRun(run)
+	if err != nil {
+		t.Fatalf("MarshalRun: %v", err)
+	}
+	got, err := UnmarshalRun(data)
+	if err != nil {
+		t.Fatalf("UnmarshalRun: %v", err)
+	}
+	if got.Duration() != 300 {
+		t.Fatalf("Duration=%d want 300 (stored Frames, not last event frame)", got.Duration())
+	}
+}

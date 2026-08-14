@@ -18,21 +18,19 @@ import (
 
 // RaceConfig tunes the local race.
 type RaceConfig struct {
-	ExpectedFrames       int // gauge scale: estimated segment length in frames
-	ReplaySeconds        int // how many seconds of replay to keep per side
-	ReplayStride         int // store every Nth frame in the replay ring
-	SlowmoSeconds        int // slow-motion duration before the replay
-	OpponentFinishFrames int // frame at which the scripted opponent "finishes"
+	ExpectedFrames int // gauge scale: estimated segment length in frames
+	ReplaySeconds  int // how many seconds of replay to keep per side
+	ReplayStride   int // store every Nth frame in the replay ring
+	SlowmoSeconds  int // slow-motion duration before the replay
 }
 
 // DefaultRaceConfig returns sensible defaults for a ~1-minute segment.
 func DefaultRaceConfig() RaceConfig {
 	return RaceConfig{
-		ExpectedFrames:       60 * 60, // ~60 s
-		ReplaySeconds:        5,
-		ReplayStride:         4, // ~15 fps replay
-		SlowmoSeconds:        1,
-		OpponentFinishFrames: 60 * 45, // opponent finishes at ~45 s
+		ExpectedFrames: 60 * 60, // ~60 s
+		ReplaySeconds:  5,
+		ReplayStride:   4, // ~15 fps replay
+		SlowmoSeconds:  1,
 	}
 }
 
@@ -105,8 +103,12 @@ type race struct {
 	frame int
 
 	playerFinish int // -1 until finished
-	oppFinish    int // -1 until the scripted opponent finishes
+	oppFinish    int // -1 until the rival really finishes
 	winner       int // 0 none, 1 player, 2 opponent
+
+	// oppProgressOverride is the rival's real gauge progress (0..1) published
+	// over shared memory; -1 until the first real value arrives.
+	oppProgressOverride float64
 
 	playerFrameSize int // set on the first player frame
 	oppFrameSize    int // set when the opponent instance is created
@@ -120,7 +122,7 @@ type race struct {
 }
 
 func newRace(cfg RaceConfig) *race {
-	return &race{cfg: cfg, state: racePlaying, playerFinish: -1, oppFinish: -1}
+	return &race{cfg: cfg, state: racePlaying, playerFinish: -1, oppFinish: -1, oppProgressOverride: -1}
 }
 
 // ensureRings lazily sizes both replay rings once both frame sizes are known.
@@ -172,15 +174,61 @@ func (r *race) PlayerFinished() {
 	r.state = raceSlowmo
 }
 
+// OppFinished records the rival's real finish (from its own arbiter via shared
+// memory). It is a no-op if the player already finished (the race is over).
+func (r *race) OppFinished() {
+	if r.state != racePlaying {
+		return
+	}
+	if r.oppFinish < 0 {
+		r.oppFinish = r.frame
+	}
+	if r.playerFinish >= 0 {
+		return // race already settled by the player
+	}
+	r.winner = 2
+	r.slowStart = r.frame
+	r.state = raceSlowmo
+}
+
+// SetOppProgress overrides the opponent's gauge progress with the real value
+// published by the rival process.
+func (r *race) SetOppProgress(p float64) {
+	r.oppProgressOverride = p
+}
+
+// PlayerProgress returns the player's gauge progress in [0,1]. Progress is a
+// design choice documented in the product: elapsed time over the expected
+// segment length (the real rival publishes its own progress over shared
+// memory). The winner is settled by whichever side's arbiter detects the
+// segment end first.
+func (r *race) PlayerProgress() float64 {
+	if r.playerFinish >= 0 {
+		return 1
+	}
+	return math.Min(1, float64(r.frame)/float64(r.cfg.ExpectedFrames))
+}
+
+// OppProgress is the opponent's gauge progress in [0,1]. It uses the real
+// value published by the rival process when available.
+func (r *race) OppProgress() float64 {
+	if r.oppFinish >= 0 {
+		return 1
+	}
+	if r.oppProgressOverride >= 0 {
+		return math.Min(1, r.oppProgressOverride)
+	}
+	return math.Min(1, float64(r.frame)/float64(r.cfg.ExpectedFrames))
+}
+
 // Tick advances the race state machine one update frame. Callers should step
 // the emulators according to the returned state.
 func (r *race) Tick() raceState {
 	r.frame++
 	switch r.state {
 	case racePlaying:
-		if r.oppFinish < 0 && r.frame >= r.cfg.OpponentFinishFrames {
-			r.oppFinish = r.frame
-		}
+		// The rival's real finish is delivered via OppFinished (shared memory);
+		// no scripted timer here.
 	case raceSlowmo:
 		if r.frame >= r.slowStart+r.cfg.SlowmoSeconds*60 {
 			r.state = raceReplay
@@ -230,25 +278,6 @@ func (r *race) ReplayIndex() int {
 		i = r.replayLen() - 1
 	}
 	return i
-}
-
-// PlayerProgress returns the player's gauge progress in [0,1], based on
-// elapsed time over the expected segment length. Both sides start together,
-// so during a simultaneous race they advance in lockstep; the winner is
-// settled by whichever arbiter/script finishes first.
-func (r *race) PlayerProgress() float64 {
-	if r.playerFinish >= 0 {
-		return 1
-	}
-	return math.Min(1, float64(r.frame)/float64(r.cfg.ExpectedFrames))
-}
-
-// OppProgress is the opponent's gauge progress in [0,1].
-func (r *race) OppProgress() float64 {
-	if r.oppFinish >= 0 {
-		return 1
-	}
-	return math.Min(1, float64(r.frame)/float64(r.cfg.ExpectedFrames))
 }
 
 // RecordInput captures one frame's button state into the input recorder. It is
