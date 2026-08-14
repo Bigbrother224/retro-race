@@ -104,5 +104,5 @@ func (a *App) drawGameScreen(screen *ebiten.Image) {
 	psTextC(screen, fmt.Sprintf("%s  ·  %d KB", strings.ToUpper(sel.Ext), sel.Size/1024),
 		cx, 492+26+6, 10, colTextDim)
 
-	drawFooter(screen, "ESC  BACK", "ENTER  PLAY", "UP / DOWN  CHOOSE")
+	drawFooter(screen, "ESC  BACK", "ENTER  PLAY      C  COURSE", "UP / DOWN  CHOOSE")
 }

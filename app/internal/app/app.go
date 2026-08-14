@@ -184,6 +184,17 @@ func (a *App) updateGameSelect() {
 		a.state = statePlaying
 		a.running = true
 	}
+	// C starts an explicit race against the rival (solo play is Enter).
+	if inpututil.IsKeyJustPressed(ebiten.KeyC) {
+		g := con.Games[a.selGame]
+		if err := a.launch(con, g); err != nil {
+			a.errMsg = err.Error()
+			return
+		}
+		a.state = statePlaying
+		a.running = true
+		a.startRace()
+	}
 }
 
 func (a *App) launch(con library.Console, g library.Game) error {
@@ -196,7 +207,8 @@ func (a *App) launch(con library.Console, g library.Game) error {
 	a.emu = core
 	a.running = true
 	a.arbiter.Reset()
-	a.startRace()
+	a.race = nil // solo play by default; a race is started explicitly
+	a.replayPlayer = nil
 	return nil
 }
 
@@ -303,11 +315,15 @@ func (a *App) updatePlaying() {
 		}
 		return
 	}
-	if a.race == nil {
-		a.startRace()
-	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
 		a.stopGame()
+		return
+	}
+
+	// Solo play: no race, no arbiter, just play (ESC to return to the menu).
+	if a.race == nil {
+		a.emu.Step()
+		a.race = nil
 		return
 	}
 
