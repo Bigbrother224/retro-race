@@ -20,3 +20,6 @@ app/Boxart/
 
 # Replay exports (user-generated, optional)
 app/Replays/
+
+# Player profile (local preferences, never committed)
+app/profile.json

@@ -85,6 +85,7 @@ type App struct {
 func Run() error {
 	consoles := library.New().Scan(romsDir)
 	a := &App{consoles: consoles, state: stateTitle, boxarts: map[boxartKey]*ebiten.Image{}, arbiter: arbiter.New(arbiter.DefaultConfig())}
+	a.username = loadProfile()
 	ebiten.SetWindowSize(960, 720)
 	ebiten.SetWindowTitle("Retro Race")
 	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
@@ -177,8 +178,9 @@ func (a *App) updateProfile() {
 	if inpututil.IsKeyJustPressed(ebiten.KeyRight) || inpututil.IsKeyJustPressed(ebiten.KeyD) {
 		a.gameMode = 1
 	}
-	// Enter/Space confirms and moves to console selection.
+	// Enter/Space confirms, persists the username, and moves to the launcher.
 	if inpututil.IsKeyJustPressed(ebiten.KeyEnter) || inpututil.IsKeyJustPressed(ebiten.KeySpace) {
+		saveProfile(a.username)
 		a.state = stateConsole
 	}
 }
