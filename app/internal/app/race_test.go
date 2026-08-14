@@ -37,7 +37,7 @@ func TestRacePlayerWinsWhenFinishingFirst(t *testing.T) {
 	cfg := DefaultRaceConfig()
 	cfg.OpponentFinishFrames = 1000 // opponent finishes much later
 	r := newRace(cfg)
-	r.SetOppFrameSize(4 * 4)
+	r.AddOppFrame([]byte{9, 9, 9, 9})
 
 	for i := 0; i < 10; i++ {
 		r.Tick()
@@ -55,7 +55,7 @@ func TestRaceOpponentWinsWhenScriptedEarlier(t *testing.T) {
 	cfg := DefaultRaceConfig()
 	cfg.OpponentFinishFrames = 20
 	r := newRace(cfg)
-	r.SetOppFrameSize(4 * 4)
+	r.AddOppFrame([]byte{9, 9, 9, 9})
 
 	for i := 0; i < 25; i++ {
 		r.Tick() // opponent finishes at frame 20
@@ -68,7 +68,7 @@ func TestRaceOpponentWinsWhenScriptedEarlier(t *testing.T) {
 
 func TestRacePlayerFinishedLatches(t *testing.T) {
 	r := newRace(DefaultRaceConfig())
-	r.SetOppFrameSize(4 * 4)
+	r.AddOppFrame([]byte{9, 9, 9, 9})
 
 	r.PlayerFinished()
 	if r.State() != raceSlowmo {
@@ -86,7 +86,6 @@ func TestRaceFullTransition(t *testing.T) {
 	r := newRace(cfg)
 	pf := []byte{1, 1, 1, 1}
 	of := []byte{2, 2, 2, 2}
-	r.SetOppFrameSize(len(of))
 
 	// Populate the replay rings during the playing phase.
 	for i := 0; i < 30; i++ {
@@ -125,7 +124,7 @@ func TestRaceProgress(t *testing.T) {
 	cfg := DefaultRaceConfig()
 	cfg.ExpectedFrames = 100
 	r := newRace(cfg)
-	r.SetOppFrameSize(4 * 4)
+	r.AddOppFrame([]byte{9, 9, 9, 9})
 
 	for i := 0; i < 50; i++ {
 		r.Tick()
@@ -143,7 +142,7 @@ func TestRaceWinnerTime(t *testing.T) {
 	cfg := DefaultRaceConfig()
 	cfg.OpponentFinishFrames = 30
 	r := newRace(cfg)
-	r.SetOppFrameSize(4 * 4)
+	r.AddOppFrame([]byte{9, 9, 9, 9})
 
 	for i := 0; i < 40; i++ {
 		r.Tick()

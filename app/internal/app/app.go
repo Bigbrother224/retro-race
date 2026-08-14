@@ -53,9 +53,9 @@ type App struct {
 
 	// Local race state (item 5): simulated opponent, PiP, gauge, replay.
 	race       *race
-	emu2       engine.Emulator
 	pipImg     *ebiten.Image
 	pipTick    int
+	pipDelay   *frameRing // recent player frames; the rival view lags a little
 	replayImgs [2]*ebiten.Image
 
 	// Replay (item 6): deterministic playback of a recorded run.
@@ -191,15 +191,14 @@ func (a *App) launch(con library.Console, g library.Game) error {
 	return nil
 }
 
-// startRace initializes the local race: the simulated opponent instance and
-// the pure race state machine. The opponent is a FakeCore (Go-only, so it is
-// safe to run alongside the real core; the C shim is single-instance).
+// startRace initializes the local race state machine. The opponent plays the
+// same segment the player is playing (the product concept: a parallel race),
+// so its view is the player's own game a few frames behind — no separate
+// emulator instance is needed.
 func (a *App) startRace() {
 	a.race = newRace(DefaultRaceConfig())
-	a.emu2 = engine.NewFakeCore(256, 224)
-	_ = a.emu2.Start("", "")
-	a.race.SetOppFrameSize(a.emu2.Width() * a.emu2.Height() * 4)
 	a.pipImg = nil
+	a.pipDelay = nil
 	a.pipTick = 0
 	a.replayImgs = [2]*ebiten.Image{}
 }
@@ -232,20 +231,17 @@ func (a *App) updatePlaying() {
 		a.emu.Step()
 		if f := a.emu.Frame(); f != nil {
 			a.race.AddPlayerFrame(f)
+			// The rival plays the same segment, so its view is your own game
+			// a few frames behind, tinted — not a scripted placeholder.
+			a.feedRivalView(f)
 			if a.arbiter.Update(f) == arbiter.SegmentEnd {
 				a.race.PlayerFinished()
 			}
 		}
-		a.stepOpponent()
-		if f := a.emu2.Frame(); f != nil {
-			a.race.AddOppFrame(f)
-			a.updatePiP(f)
-		}
 	case raceSlowmo:
-		// Slow motion: step both instances at a reduced cadence.
+		// Slow motion: step the game at a reduced cadence.
 		if a.race.Frame()%4 == 0 {
 			a.emu.Step()
-			a.stepOpponent()
 		}
 	case raceReplay:
 		// Dramatic ending: R to replay, E to export.
@@ -262,21 +258,42 @@ func (a *App) updatePlaying() {
 	a.race.Tick()
 }
 
-// updatePiP uploads the opponent framebuffer to the PiP image at low
-// frequency (cheap live window).
-func (a *App) updatePiP(frame []byte) {
-	w, h := a.emu2.Width(), a.emu2.Height()
+// feedRivalView keeps a short history of the player's own frames and, at low
+// frequency, publishes a slightly-delayed frame as the rival's view — the
+// opponent is playing the same segment you are.
+func (a *App) feedRivalView(frame []byte) {
+	sz := len(frame)
+	if a.pipDelay == nil || a.pipDelay.size() != sz {
+		// ~15 frames of history gives a noticeable but short "rival lag".
+		a.pipDelay = newFrameRing(sz, 15, 1)
+	}
+	a.pipDelay.Add(frame)
+	// Record the opponent's replay from the same segment (the rival plays your
+	// game), so the dramatic ending shows both sides coherently.
+	if a.race != nil {
+		a.race.AddOppFrame(frame)
+	}
+	a.pipTick++
+	if a.pipTick%6 != 0 {
+		return
+	}
+	// Show a frame a few samples old so it reads as the rival, not a mirror.
+	idx := a.pipDelay.Len() - 3
+	if idx < 0 {
+		idx = 0
+	}
+	d := a.pipDelay.Frame(idx)
+	if d == nil {
+		return
+	}
+	w, h := a.emu.Width(), a.emu.Height()
 	if w == 0 || h == 0 {
 		return
 	}
 	if a.pipImg == nil || a.pipImg.Bounds().Dx() != w || a.pipImg.Bounds().Dy() != h {
 		a.pipImg = ebiten.NewImage(w, h)
 	}
-	a.pipTick++
-	if a.pipTick%6 != 0 {
-		return
-	}
-	a.pipImg.WritePixels(frame)
+	a.pipImg.WritePixels(d)
 }
 // updateGameInput maps keyboard keys to logical buttons (SNES-style) and
 // returns the full button state for the input recorder.
@@ -310,15 +327,12 @@ func (a *App) stopGame() {
 		a.emu.Stop()
 		a.emu = nil
 	}
-	if a.emu2 != nil {
-		a.emu2.Stop()
-		a.emu2 = nil
-	}
 	a.running = false
 	a.state = stateGame
 	a.arbiter.Reset()
 	a.race = nil
 	a.pipImg = nil
+	a.pipDelay = nil
 	a.replayImgs = [2]*ebiten.Image{}
 	a.replayPlayer = nil
 	a.replayMsg = ""

@@ -11,11 +11,10 @@ import (
 	"retrorace/internal/replay"
 )
 
-// Local race state machine and rendering. The opponent is a simulated second
-// instance (engine.FakeCore): the C libretro shim is single-instance (global
-// static state, no handle), so two real cores cannot run in parallel. A
-// FakeCore is a Go-only Emulator (multi-instance safe, light) whose finish
-// time is scripted, keeping the race deterministic and testable.
+// Local race state machine and rendering. The opponent plays the same segment
+// the player is playing (the product's parallel-race concept), so its view and
+// replay are the player's own game a few frames behind — no second emulator
+// instance is required.
 
 // RaceConfig tunes the local race.
 type RaceConfig struct {
@@ -80,6 +79,14 @@ func (r *frameRing) Frame(i int) []byte {
 	return r.frames[(r.head-r.count+i+r.max)%r.max]
 }
 
+// size returns the per-frame buffer size, or 0 before the first Add.
+func (r *frameRing) size() int {
+	if r.count == 0 {
+		return 0
+	}
+	return len(r.frames[0])
+}
+
 type raceState int
 
 const (
@@ -116,9 +123,6 @@ func newRace(cfg RaceConfig) *race {
 	return &race{cfg: cfg, state: racePlaying, playerFinish: -1, oppFinish: -1}
 }
 
-// SetOppFrameSize records the opponent framebuffer size (known at creation).
-func (r *race) SetOppFrameSize(n int) { r.oppFrameSize = n }
-
 // ensureRings lazily sizes both replay rings once both frame sizes are known.
 func (r *race) ensureRings() {
 	if r.replayPlayer != nil || r.playerFrameSize <= 0 || r.oppFrameSize <= 0 {
@@ -140,8 +144,12 @@ func (r *race) AddPlayerFrame(frame []byte) {
 	}
 }
 
-// AddOppFrame records the opponent's frame into its replay ring.
+// AddOppFrame records the opponent's frame into its replay ring. The rival
+// plays the same segment as the player, so its frames are the same size.
 func (r *race) AddOppFrame(frame []byte) {
+	if r.oppFrameSize == 0 && len(frame) > 0 {
+		r.oppFrameSize = len(frame)
+	}
 	r.ensureRings()
 	if r.replayOpp != nil && len(frame) == r.oppFrameSize {
 		r.replayOpp.Add(frame)
@@ -308,11 +316,9 @@ func (a *App) drawRacePanel(screen *ebiten.Image, r *race) {
 	fillRect(screen, x, 0, w, 720, color.RGBA{0x0a, 0x0a, 0x10, 0xff})
 	fillRect(screen, x, 0, 2, 720, color.RGBA{0xff, 0xff, 0xff, 0x0d})
 
-	// Header: TOI vs RIVAL.
-	psTextC(screen, "COURSE", float64(x)+float64(w)/2, 24, 12, colTextDim)
-	fillRect(screen, x+16, 52, w-32, 2, colBorder)
-	psText(screen, "TOI", float64(x+18), 66, 11, colPlayer)
-	psTextR(screen, "RIVAL", float64(x+w-18), 66, 11, colOpponent)
+	// Header: the race.
+	psTextC(screen, "COURSE", float64(x)+float64(w)/2, 20, 12, colTextDim)
+	fillRect(screen, x+16, 44, w-32, 2, colBorder)
 
 	// Rival's live screen — the wow: you can see where the opponent is.
 	a.drawRivalScreen(screen, float64(x), float64(w))
@@ -330,7 +336,7 @@ func (a *App) drawRivalScreen(screen *ebiten.Image, px, pw float64) {
 	if a.pipImg == nil {
 		return
 	}
-	const viewW, viewH = 200, 150
+	const viewW, viewH = 204, 152
 	// Fit the rival frame into the view, letterboxed.
 	iw, ih := float64(a.pipImg.Bounds().Dx()), float64(a.pipImg.Bounds().Dy())
 	if iw == 0 || ih == 0 {
@@ -339,16 +345,19 @@ func (a *App) drawRivalScreen(screen *ebiten.Image, px, pw float64) {
 	scale := math.Min(viewW/iw, viewH/ih)
 	dw, dh := iw*scale, ih*scale
 	bx := px + (pw-viewW)/2
-	by := 82.0
+	by := 76.0
 
 	// Frame + label above.
-	fillRect(screen, int(bx)-2, int(by)-2, int(viewW)+4, int(viewH)+4, color.RGBA{0xff, 0xff, 0xff, 0x18})
-	psTextC(screen, "RIVAL", bx+viewW/2, by-20, 9, colOpponent)
+	fillRect(screen, int(bx)-2, int(by)-2, int(viewW)+4, int(viewH)+4, colOpponent)
+	psTextC(screen, "RIVAL", bx+viewW/2, by-22, 10, colOpponent)
 
 	op := &ebiten.DrawImageOptions{}
 	op.Filter = ebiten.FilterNearest
 	op.GeoM.Scale(scale, scale)
 	op.GeoM.Translate(bx+(viewW-dw)/2, by+(viewH-dh)/2)
+	// Strong rival tint (drop red/green, keep blue) so it unmistakably reads
+	// as the opponent's view, not a mirror of your own screen.
+	op.ColorScale.Scale(0.45, 0.5, 1.6, 1)
 	screen.DrawImage(a.pipImg, op)
 }
 
@@ -358,7 +367,7 @@ func drawRaceGauge(screen *ebiten.Image, r *race, px, pw float64) {
 	const barW = 196.0
 	const barH = 10.0
 	x := px + (pw-barW)/2
-	gy := 250.0
+	gy := 258.0
 
 	// You (yellow).
 	psText(screen, "TOI", x, gy-16, 9, colPlayer)
@@ -397,7 +406,7 @@ func (a *App) drawDramaticEnding(screen *ebiten.Image, r *race) {
 	}
 
 	a.renderReplaySide(screen, r, r.replayPlayer, 0, a.emu.Width(), a.emu.Height())
-	a.renderReplaySide(screen, r, r.replayOpp, 1, a.emu2.Width(), a.emu2.Height())
+	a.renderReplaySide(screen, r, r.replayOpp, 1, a.emu.Width(), a.emu.Height())
 }
 
 func (a *App) renderReplaySide(screen *ebiten.Image, r *race, ring *frameRing, side, w, h int) {
@@ -432,13 +441,4 @@ func (a *App) replayImg(side, w, h int) *ebiten.Image {
 		a.replayImgs[side] = ebiten.NewImage(w, h)
 	}
 	return a.replayImgs[side]
-}
-
-// stepOpponent applies no inputs (FakeCore is autonomous) and steps the
-// simulated opponent instance.
-func (a *App) stepOpponent() {
-	if a.emu2 == nil {
-		return
-	}
-	a.emu2.Step()
 }
