@@ -12,23 +12,23 @@ import (
 
 // Console is one supported system with its games.
 type Console struct {
-	ID     string // "nes", "snes", ...
-	Name   string // "NES / Famicom", ...
-	Core   string // relative dylib path under the cores dir
-	Exts   []string
-	Games  []Game
-	Emoji  string
+	ID    string // "nes", "snes", ...
+	Name  string // "NES / Famicom", ...
+	Core  string // relative dylib path under the cores dir
+	Exts  []string
+	Games []Game
+	Emoji string
 }
 
 // Game is a locally-owned ROM identified by hashes.
 type Game struct {
-	Name     string // display name (no extension)
-	Path     string
-	MD5      string
-	SHA256   string
-	Size     int64
-	Ext      string
-	Console  string // console id
+	Name    string // display name (no extension)
+	Path    string
+	MD5     string
+	SHA256  string
+	Size    int64
+	Ext     string
+	Console string // console id
 }
 
 // Library is the console registry for a run, populated from a ROM directory.

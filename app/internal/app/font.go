@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"image/color"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -22,7 +23,7 @@ var (
 
 func loadFont() *text.GoTextFaceSource {
 	fontOnce.Do(func() {
-		b, err := os.ReadFile("Assets/fonts/PressStart2P-Regular.ttf")
+		b, err := os.ReadFile(filepath.Join(fontsDir, "PressStart2P-Regular.ttf"))
 		if err != nil {
 			fontErr = err
 			return

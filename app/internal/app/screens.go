@@ -49,6 +49,7 @@ func (a *App) drawTitleScreen(screen *ebiten.Image, frameCount int) {
 	}
 	psTextC(screen, "PRESS START", 480, 420, 24, press)
 	psTextC(screen, "ENTER  /  START", 480, 468, 12, colTextDim)
+	psTextC(screen, "T  TEST MANETTES", 480, 496, 10, colTextDim)
 }
 
 // drawProfileScreen shows a card asking for the player name and the chosen
@@ -70,10 +71,10 @@ func (a *App) drawProfileScreen(screen *ebiten.Image) {
 	psTextC(screen, display, 480, 196, 20, colText)
 	fillRect(screen, 300, 228, 360, 2, colBorder)
 
-	// Mode choice: two cards side by side.
+	// Mode choice: three cards side by side.
 	psTextC(screen, "MODE", 480, 270, 13, colTextDim)
-	for i, label := range []string{"SOLO", "COURSE"} {
-		x := 260 + i*240
+	for i, label := range []string{"SOLO", "COURSE", "PARTAGE"} {
+		x := 140 + i*200
 		sel := i == a.gameMode
 		var fill color.Color = colPanelHi
 		var border color.Color = colBorder
@@ -87,10 +88,13 @@ func (a *App) drawProfileScreen(screen *ebiten.Image) {
 			tc = colAccent2
 		}
 		psTextC(screen, label, float64(x)+90, 332, 18, tc)
-		if label == "SOLO" {
+		switch label {
+		case "SOLO":
 			psTextC(screen, "Joue seul", float64(x)+90, 366, 10, colTextDim)
-		} else {
+		case "COURSE":
 			psTextC(screen, "Contre un rival", float64(x)+90, 366, 10, colTextDim)
+		case "PARTAGE":
+			psTextC(screen, "Avec un ami (netplay)", float64(x)+90, 366, 10, colTextDim)
 		}
 	}
 

@@ -18,19 +18,19 @@ type InputEvent struct {
 // Run is a recorded segment: game identity plus the ordered input events.
 // Only button changes are stored; the button state between changes persists.
 type Run struct {
-	Game    string       `json:"game"`
-	Console string       `json:"console"`
-	Core    string       `json:"core"`
-	ROMHash string       `json:"rom_hash"`
-	ROMPath string       `json:"rom_path,omitempty"`
-	Width   int          `json:"width"`
-	Height  int          `json:"height"`
+	Game    string `json:"game"`
+	Console string `json:"console"`
+	Core    string `json:"core"`
+	ROMHash string `json:"rom_hash"`
+	ROMPath string `json:"rom_path,omitempty"`
+	Width   int    `json:"width"`
+	Height  int    `json:"height"`
 	// Frames is the total number of frames recorded. It is stored because
 	// Events only hold button CHANGES: a player holding a button (running
 	// right) produces one event but many frames. The replay must run for the
 	// full duration, not just until the last change.
-	Frames  int          `json:"duration"`
-	Events  []InputEvent `json:"events"`
+	Frames int          `json:"duration"`
+	Events []InputEvent `json:"events"`
 }
 
 // Duration returns the run's frame count: the explicit recorded duration when

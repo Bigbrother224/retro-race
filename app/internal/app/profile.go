@@ -6,9 +6,8 @@ import (
 	"path/filepath"
 )
 
-// profilePath is where the player's profile (currently just the username) is
-// persisted between launches. It is a var so tests can redirect it.
-var profilePath = "/Users/mac/retro-race/app/profile.json"
+// profilePath (see paths.go) is where the player's profile (currently just the
+// username) is persisted between launches. It is a var so tests can redirect it.
 
 // profile is the persisted player preference.
 type profile struct {

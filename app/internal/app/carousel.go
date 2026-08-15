@@ -3,6 +3,7 @@ package app
 import (
 	"image/color"
 	"math"
+	"path/filepath"
 	"sync"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -53,10 +54,10 @@ var (
 func loadPhotos() {
 	photoMap = map[string]*ebiten.Image{}
 	srcs := []struct{ id, file string }{
-		{"nes", "Assets/consoles/nes.png"},
-		{"snes", "Assets/consoles/snes.png"},
-		{"gb", "Assets/consoles/gb.jpg"},
-		{"genesis", "Assets/consoles/genesis.jpg"},
+		{"nes", filepath.Join(consolesDir, "nes.png")},
+		{"snes", filepath.Join(consolesDir, "snes.png")},
+		{"gb", filepath.Join(consolesDir, "gb.jpg")},
+		{"genesis", filepath.Join(consolesDir, "genesis.jpg")},
 	}
 	for _, s := range srcs {
 		if img, _, err := ebitenutil.NewImageFromFile(s.file); err == nil {

@@ -13,10 +13,9 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 )
 
-// boxartDir is where user-provided boxart images live, keyed by console id
-// then game name (e.g. Boxart/nes/Alter Ego.png). It is optional: when an
-// image is absent, a generated placeholder tile is shown instead.
-const boxartDir = "/Users/mac/retro-race/app/Boxart"
+// boxartDir (see paths.go) is where user-provided boxart images live, keyed by
+// console id then game name (e.g. Boxart/nes/Alter Ego.png). It is optional:
+// when an image is absent, a generated placeholder tile is shown instead.
 
 // boxartPath returns the local boxart image path for a game under dir, and
 // whether it exists. (_, false) means fall back to a generated placeholder.
@@ -178,4 +177,3 @@ func drawBox3D(screen *ebiten.Image, img *ebiten.Image, cx, cy, w, h, d, alpha f
 	op.ColorScale.ScaleAlpha(a)
 	screen.DrawImage(img, op)
 }
-

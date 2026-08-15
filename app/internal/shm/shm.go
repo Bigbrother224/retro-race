@@ -38,16 +38,16 @@ const (
 
 // Header field offsets (little-endian).
 const (
-	offMagic     = 0
-	offVersion   = 4
-	offFrame     = 8
-	offState     = 12
-	offWidth     = 16
-	offHeight    = 20
-	offFPS       = 24
-	offProgress  = 28 // 0..1000 (per mille)
-	offFinish    = 32 // frame at which the rival finished, or 0
-	offReserved  = 36
+	offMagic    = 0
+	offVersion  = 4
+	offFrame    = 8
+	offState    = 12
+	offWidth    = 16
+	offHeight   = 20
+	offFPS      = 24
+	offProgress = 28 // 0..1000 (per mille)
+	offFinish   = 32 // frame at which the rival finished, or 0
+	offReserved = 36
 )
 
 // State values (producer -> consumer).
@@ -60,9 +60,9 @@ const (
 
 const (
 	// Magic identifies a valid region.
-	Magic    = 0x52524652 // "RRFR"
+	Magic = 0x52524652 // "RRFR"
 	// Version of the layout.
-	Version  = 1
+	Version = 1
 )
 
 // Producer is the rival side: it writes a frame and bumps the seqlock.
@@ -144,20 +144,20 @@ func (p *Producer) SetState(state uint32, progress uint32, finishFrame uint32) {
 
 // Consumer is the player side: it reads the rival's latest frame.
 type Consumer struct {
-	data    []byte
-	last    uint32
-	fb      []byte // stable copy of the latest framebuffer
+	data []byte
+	last uint32
+	fb   []byte // stable copy of the latest framebuffer
 }
 
 // Snapshot is one consumed rival frame.
 type Snapshot struct {
-	Frame     []byte // RGBA, valid until the next Take
-	Width     int
-	Height    int
-	State     uint32
-	Progress  uint32
+	Frame       []byte // RGBA, valid until the next Take
+	Width       int
+	Height      int
+	State       uint32
+	Progress    uint32
 	FinishFrame uint32
-	FPS       uint32
+	FPS         uint32
 }
 
 // OpenConsumer maps the shared region at path read-write (mmap requires at
