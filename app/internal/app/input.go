@@ -53,48 +53,6 @@ var keyboardButtons = map[ebiten.Key]engine.JoyButton{
 	ebiten.KeyE:          engine.BtnR,
 }
 
-// updatePlayerInputs collects raw input per logical player, independent of
-// which emulator port they will drive. Keyboard is player 0; gamepads are
-// assigned in connection order (first -> player 0, second -> player 1). This
-// is the only place physical devices are turned into player button states, so
-// a future remote source (relayed input packets) plugs in here as one more
-// player.
-func (a *App) updatePlayerInputs() {
-	a.players = [2][12]bool{}
-
-	// Keyboard -> player 0. Latch keyboard activity once any mapped key is
-	// seen so a keyboard + gamepad combo reads as two players.
-	keyUsed := false
-	for key, btn := range keyboardButtons {
-		if inpututil.IsKeyJustPressed(key) || ebiten.IsKeyPressed(key) {
-			a.players[0][btn] = true
-			keyUsed = true
-		}
-	}
-	if keyUsed {
-		a.keyboardActive = true
-	}
-
-	gps := a.standardGamepads()
-	if len(gps) == 0 {
-		return // keyboard only
-	}
-
-	// Decide player assignment. When the keyboard is a live player, the first
-	// gamepad becomes player 1 (so keyboard + one gamepad is a valid 2-player
-	// local setup). With no keyboard activity, a gamepad-only player keeps
-	// control of port 0.
-	_, start := playerPlan(a.keyboardActive, len(gps))
-	p := start
-	for _, id := range gps {
-		if p >= len(a.players) {
-			break
-		}
-		a.readGamepad(id, p)
-		p++
-	}
-}
-
 // playerPlan decides how to assign gamepads to logical players given the
 // keyboard activity and the number of standard gamepads. It is pure so it can
 // be unit-tested without a display or controllers.
@@ -141,33 +99,6 @@ func readGamepadButtons(id ebiten.GamepadID, st *[12]bool) {
 	for i := 0; i < n && i < len(rawButtonToSNES); i++ {
 		if ebiten.IsGamepadButtonPressed(id, ebiten.GamepadButton(i)) {
 			st[rawButtonToSNES[i]] = true
-		}
-	}
-}
-
-// standardGamepads returns every connected gamepad. readGamepad handles both
-// standard and raw layouts, so no pad is dropped from player assignment.
-func (a *App) standardGamepads() []ebiten.GamepadID {
-	return ebiten.AppendGamepadIDs(nil)
-}
-
-// readGamepad reads one gamepad's pressed buttons into player p's state.
-func (a *App) readGamepad(id ebiten.GamepadID, p int) {
-	readGamepadButtons(id, &a.players[p])
-}
-
-// applyGate routes the two logical players' button states to the emulator
-// controller ports (player 0 -> port 0, player 1 -> port 1). Local two-gamepad
-// play and remote relayed inputs both land here, so the routing is identical
-// whether the players are side by side or across the world.
-func (a *App) applyGate() {
-	if a.emu == nil {
-		return
-	}
-	for port := 0; port < 2; port++ {
-		st := a.players[port]
-		for b := 0; b < 12; b++ {
-			a.emu.SetButtonPort(port, engine.JoyButton(b), st[b])
 		}
 	}
 }
