@@ -119,3 +119,37 @@ Par ordre de valeur, pas par envie. Statut : ✅ fait / ⏳ à faire.
 - Pas de "ça va devenir parfait/optimisé". Objectif : que chaque chose ait **une seule**
   façon d'être faite, que le repo soit **portable**, et qu'il n'y ait **pas de code mort
   étiqueté feature**.
+
+## Ré-audit (2026-08-15, après correctifs)
+
+### Delta : corrigé et vérifié
+
+| Avant | Après | Preuve |
+| --- | --- | --- |
+| 2 stacks netplay (`NetplayApp` + menu) | 1 seul chemin (menu) | `NetplayApp` absent |
+| 17 chemins `/Users/mac/retro-race` | 0 | grep = 0 |
+| saves dans `/tmp` | `~/Library/Application Support/RetroRace/Saves` | shim + paths |
+| Joust (scope creep) | retiré | grep = 0 |
+| md5 + sha256 | sha256 seul | champ MD5 absent |
+| App god object : 42 champs | App 12 champs + `gameSession` 32 | struct |
+| `running` (écrit jamais lu) | retiré | grep = 0 |
+
+Build + vet + tests verts ; simulate E2E garde les deux machines en sync exacte.
+
+### Ce qui reste (à décider)
+
+- **`archive-swift/`** : frontend Swift mort ("conservé pour référence") — ~2 jours de code
+  alternatif (SwiftUI + Core + calibration) que rien ne build ni n'utilise. À supprimer ou
+  à archiver hors du dépôt produit.
+- **`spike/`** : dossier vide.
+- **Docs : 77 Ko** (RETRO-RACE 30 Ko + ROADMAP 35 Ko + CONTEXT 5 Ko + audit 7 Ko) pour
+  ~6 500 lignes de Go (après suppression). Sur-documentation qui reste.
+- **Netplay cross-machine non validé** : `RelayAddr` par défaut = `127.0.0.1:9330`, relay
+  local uniquement. Le netplay prouvé est mono-machine (simulate, 2 instances). Deux vrais
+  joueurs sur des machines différentes exigent un relay déployé + une adresse configurée —
+  jamais testé.
+- **Pas de test d'intégration du flux GUI** : seule la logique pure est testée (race, input,
+  arbiter, netplay, rollback). Le parcours menu → course → fin dramatique n'a pas de test
+  automatisé.
+- **`knownPlayers`** : table hardcodée de 4 jeux (profils) — à étendre ou à externaliser.
+- **`aiagent`** : gardé comme outil dev, brûle le budget API — accepté.
