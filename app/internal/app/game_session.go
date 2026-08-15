@@ -37,7 +37,6 @@ type gameSession struct {
 
 	// Emulator.
 	emu     engine.Emulator
-	running bool
 	paused  bool
 	img     *ebiten.Image
 	arbiter *arbiter.Arbiter
@@ -103,7 +102,6 @@ func (s *gameSession) load() error {
 		return err
 	}
 	s.emu = core
-	s.running = true
 	s.arbiter.Reset()
 	s.race = nil // solo play by default; a race is started explicitly
 	s.replayPlayer = nil
@@ -394,7 +392,6 @@ func (s *gameSession) stopGame() {
 		s.emu = nil
 	}
 	s.stopRival()
-	s.running = false
 	s.paused = false
 	s.app.state = stateGame
 	s.arbiter.Reset()
@@ -622,7 +619,6 @@ func (s *gameSession) startNetplayGame() {
 		s.netPlayers = n
 		s.netKnown = true
 	}
-	s.running = true
 	s.paused = false
 	s.app.state = statePlaying
 	s.arbiter.Reset()
@@ -639,7 +635,6 @@ func (s *gameSession) stopNetplay() {
 		s.emu = nil
 	}
 	s.netRb = nil
-	s.running = false
 	s.app.state = stateGame
 }
 
