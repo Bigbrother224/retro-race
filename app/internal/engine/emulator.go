@@ -37,8 +37,13 @@ type Emulator interface {
 	// Width/Height of the current framebuffer (0 until the first frame).
 	Width() int
 	Height() int
-	// SetButton updates a logical button state (pressed or released).
+	// SetButton updates a logical button state (pressed or released) on
+	// controller port 0 (player 1). It is a convenience for SetButtonPort(0,…).
 	SetButton(button JoyButton, pressed bool)
+	// SetButtonPort updates a logical button state on a specific controller
+	// port (0 = player 1, 1 = player 2). The gate routes each player's input
+	// to a port, so native 2-player games and solo games share the same path.
+	SetButtonPort(port int, button JoyButton, pressed bool)
 	// Reset restarts the loaded game from its initial state.
 	Reset()
 	// Stop releases the game and the core.

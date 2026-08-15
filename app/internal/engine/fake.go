@@ -11,7 +11,7 @@ type FakeCore struct {
 	width, height int
 	frame         int
 	rgba          []byte
-	buttons       [16]bool
+	buttons       [2][16]bool
 }
 
 // NewFakeCore creates a FakeCore with the given screen size.
@@ -46,7 +46,7 @@ func (f *FakeCore) Frame() []byte {
 	carY := h/2 + (sway(f.frame*7+40)/128)*(h/6)
 	for y := 0; y < h; y++ {
 		// Dashed centre line scrolls downward with the frame.
-		dash := ((y - f.frame*2) / 14) % 2 == 0
+		dash := ((y-f.frame*2)/14)%2 == 0
 		for x := 0; x < w; x++ {
 			i := (y*w + x) * 4
 			r, g, b := groundPixel(x, y, x0, roadW, dash)
@@ -71,7 +71,7 @@ func (f *FakeCore) Frame() []byte {
 // sway returns a coarse sine in [-128,127].
 func sway(v int) int {
 	tab := [8]int{0, 45, 90, 127, 90, 45, 0, -45}
-	idx := (v % 8 + 8) % 8
+	idx := (v%8 + 8) % 8
 	return tab[idx]
 }
 
@@ -111,9 +111,17 @@ func (f *FakeCore) Width() int { return f.width }
 // Height implements Emulator.
 func (f *FakeCore) Height() int { return f.height }
 
-// SetButton implements Emulator.
+// SetButton implements Emulator: writes the button state on port 0.
 func (f *FakeCore) SetButton(button JoyButton, pressed bool) {
-	f.buttons[int(button)] = pressed
+	f.SetButtonPort(0, button, pressed)
+}
+
+// SetButtonPort implements Emulator: writes the button state for a port.
+func (f *FakeCore) SetButtonPort(port int, button JoyButton, pressed bool) {
+	if port < 0 || port >= len(f.buttons) || int(button) >= len(f.buttons[port]) {
+		return
+	}
+	f.buttons[port][int(button)] = pressed
 }
 
 // Reset implements Emulator: restarts the animation from frame 0.

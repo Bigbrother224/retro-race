@@ -49,6 +49,20 @@ struct retro_game_info {
     const char *meta;
 };
 
+/* Player-port capability reported via RETRO_ENVIRONMENT_SET_CONTROLLER_INFO.
+ * The core describes each controller port (how many controllers it supports);
+ * a game that supports two players exposes entries for ports 0 and 1. */
+struct retro_controller_description {
+    const char *desc;
+    unsigned id;
+};
+
+struct retro_controller_info {
+    const char *desc;
+    unsigned num_types;
+    struct retro_controller_description *types;
+};
+
 enum {
     RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY = 9,
     RETRO_ENVIRONMENT_SET_PIXEL_FORMAT = 10,
@@ -101,10 +115,13 @@ static bool g_need_fullpath = false;
 static char g_tmp_game_path[64];
 static bool g_tmp_game_exists = false;
 static int g_pixel_format = RETRO_PIXEL_FORMAT_0RGB1555;
+static int g_controller_players = -1; /* -1 = not reported (unknown) */
 
-/* Live button states, written by the frontend via rr_set_button. The core
- * reads them through input_state_cb. */
-static int g_buttons[16];
+/* Live button states, written by the frontend via rr_set_button(_port).
+ * The core reads them through input_state_cb. g_buttons[port][id]: the first
+ * index is the RETRO controller port (0 = player 1, 1 = player 2), the second
+ * is the RETRO_DEVICE_ID_JOYPAD_* id. */
+static int g_buttons[2][16];
 
 /* Internal framebuffer snapshot (max 1024x1024x4, plenty for 8/16-bit). */
 static uint8_t g_snapshot[1024 * 1024 * 4];
@@ -132,6 +149,22 @@ static bool env_cb(unsigned cmd, void *data) {
             }
             return false;
         }
+        case RETRO_ENVIRONMENT_SET_CONTROLLER_INFO: {
+            /* How many player ports does the core expose? The array is indexed
+             * by port and ends at the first entry with num_types == 0. This
+             * reflects the core/hardware capability, not the specific ROM's
+             * two-player gameplay. */
+            const struct retro_controller_info *info =
+                (const struct retro_controller_info *)data;
+            int n = 0;
+            for (n = 0; n < 8; n++) {
+                if (info[n].num_types == 0) {
+                    break;
+                }
+            }
+            g_controller_players = n;
+            return true;
+        }
         default:
             return false;
     }
@@ -144,13 +177,13 @@ static void input_poll_cb(void) {
 }
 
 static int16_t input_state_cb(unsigned port, unsigned device, unsigned index, unsigned id) {
-    /* Buttons are written by the frontend via rr_set_button (no Go callbacks
-     * across cgo). If a scripted input callback is set, it wins. */
+    /* Buttons are written by the frontend via rr_set_button_port (no Go
+     * callbacks across cgo). If a scripted input callback is set, it wins. */
     if (g_input.state) {
         return g_input.state(port, device, index, id, g_input.user);
     }
-    if (id < 16) {
-        return g_buttons[id] ? 1 : 0;
+    if (port < 2 && id < 16) {
+        return g_buttons[port][id] ? 1 : 0;
     }
     return 0;
 }
@@ -330,6 +363,7 @@ int rr_load_game(const void *rom, size_t rom_size) {
 
     g_init();
     g_set_controller_port_device(0, 1 /* RETRO_DEVICE_JOYPAD */);
+    g_set_controller_port_device(1, 1 /* RETRO_DEVICE_JOYPAD */);
     if (!g_load_game(&info)) {
         return -2;
     }
@@ -374,18 +408,28 @@ int rr_pixel_format(void) {
     return g_pixel_format;
 }
 
-/* Sets a live button state (id = RETRO_DEVICE_ID_JOYPAD_*). */
-void rr_set_button(unsigned id, int pressed) {
-    if (id < 16) {
-        g_buttons[id] = pressed ? 1 : 0;
+/* Returns how many player controller ports the core exposes (-1 if not
+ * reported). This is the emulated hardware capability; whether the specific
+ * ROM actually uses a second character is game-specific. */
+int rr_controller_players(void) {
+    return g_controller_players;
+}
+
+/* Sets a live button state on a specific player port (0 or 1). */
+void rr_set_button_port(unsigned port, unsigned id, int pressed) {
+    if (port < 2 && id < 16) {
+        g_buttons[port][id] = pressed ? 1 : 0;
     }
+}
+
+/* Sets a live button state on port 0 (id = RETRO_DEVICE_ID_JOYPAD_*). */
+void rr_set_button(unsigned id, int pressed) {
+    rr_set_button_port(0, id, pressed);
 }
 
 /* Clears all button states (e.g. window loses focus). */
 void rr_clear_buttons(void) {
-    for (int i = 0; i < 16; i++) {
-        g_buttons[i] = 0;
-    }
+    memset(g_buttons, 0, sizeof(g_buttons));
 }
 
 /* Copies the latest captured framebuffer into `out` (which must hold at least

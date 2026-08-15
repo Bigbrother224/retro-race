@@ -50,6 +50,9 @@ void rr_av_info(unsigned *base_width, unsigned *base_height, double *fps, unsign
 /* Returns the pixel format the core chose: 0=0RGB1555, 1=XRGB8888, 2=RGB565. */
 int rr_pixel_format(void);
 
+/* Returns how many player controller ports the core exposes (-1 if unknown). */
+int rr_controller_players(void);
+
 /* Copies the latest captured framebuffer (in the core's pixel format) into
  * `out`. Returns 0 on success, -1 if no frame captured yet. */
 int rr_snapshot(void *out, int *out_width, int *out_height);
@@ -62,6 +65,9 @@ void rr_reset(void);
 
 /* Sets a live button state (id = RETRO_DEVICE_ID_JOYPAD_*, 0..15). */
 void rr_set_button(unsigned id, int pressed);
+
+/* Sets a live button state on a specific player port (0 or 1). */
+void rr_set_button_port(unsigned port, unsigned id, int pressed);
 
 /* Clears all button states. */
 void rr_clear_buttons(void);

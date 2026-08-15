@@ -9,6 +9,7 @@ package engine
 import "C"
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"unsafe"
@@ -26,8 +27,9 @@ type Core struct {
 	format int
 
 	// Reused buffers: one for the raw capture, one for the RGBA output.
-	raw     []byte
-	rgba    []byte
+	raw      []byte
+	rgba     []byte
+	stateBuf []byte // reused save-state buffer for divergence hashing
 }
 
 // NewCore creates a Core implementing Emulator.
@@ -103,8 +105,79 @@ func (c *Core) Width() int { return c.width }
 // Height implements Emulator.
 func (c *Core) Height() int { return c.height }
 
-// SetButton implements Emulator: writes the live button state in C.
+// ControllerPlayers returns how many player controller ports the core exposes
+// (-1 when the core does not report it). It reflects the emulated hardware
+// capability; whether the specific ROM actually has a second character is a
+// per-game fact.
+func (c *Core) ControllerPlayers() int {
+	if !c.loaded {
+		return -1
+	}
+	return int(C.rr_controller_players())
+}
+
+// StateHash returns a stable hash of the core's serialized game state, or 0 if
+// the core does not support save states. Both netplay peers hash their state
+// periodically and compare, so a non-deterministic (random) game cannot diverge
+// silently.
+func (c *Core) StateHash() uint64 {
+	if !c.loaded {
+		return 0
+	}
+	n := int(C.rr_serialize_size())
+	if n <= 0 {
+		return 0
+	}
+	if cap(c.stateBuf) < n {
+		c.stateBuf = make([]byte, n)
+	}
+	buf := c.stateBuf[:n]
+	if C.rr_serialize(unsafe.Pointer(&buf[0]), C.size_t(n)) != 0 {
+		return 0
+	}
+	// FNV-1a 64.
+	h := uint64(14695981039346656037)
+	for _, b := range buf {
+		h ^= uint64(b)
+		h *= 1099511628211
+	}
+	return h
+}
+
+// Save serializes the core's full game state for rollback re-simulation.
+func (c *Core) Save() ([]byte, error) {
+	if !c.loaded {
+		return nil, errors.New("core not loaded")
+	}
+	n := int(C.rr_serialize_size())
+	if n <= 0 {
+		return nil, errors.New("core does not support save states")
+	}
+	buf := make([]byte, n)
+	if C.rr_serialize(unsafe.Pointer(&buf[0]), C.size_t(n)) != 0 {
+		return nil, errors.New("serialize failed")
+	}
+	return buf, nil
+}
+
+// Restore returns the core to a state previously produced by Save.
+func (c *Core) Restore(b []byte) error {
+	if !c.loaded {
+		return errors.New("core not loaded")
+	}
+	if C.rr_unserialize(unsafe.Pointer(&b[0]), C.size_t(len(b))) != 0 {
+		return errors.New("unserialize failed")
+	}
+	return nil
+}
+
+// SetButton implements Emulator: writes the live button state in C (port 0).
 func (c *Core) SetButton(button JoyButton, pressed bool) {
+	c.SetButtonPort(0, button, pressed)
+}
+
+// SetButtonPort implements Emulator: writes the live button state for a port.
+func (c *Core) SetButtonPort(port int, button JoyButton, pressed bool) {
 	if !c.loaded {
 		return
 	}
@@ -112,7 +185,7 @@ func (c *Core) SetButton(button JoyButton, pressed bool) {
 	if pressed {
 		p = 1
 	}
-	C.rr_set_button(C.uint(joypadID(button)), C.int(p))
+	C.rr_set_button_port(C.uint(port), C.uint(joypadID(button)), C.int(p))
 }
 
 func (c *Core) bytesPerPixel() int {

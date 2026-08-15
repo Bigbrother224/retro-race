@@ -43,12 +43,32 @@ func TestFakeCoreButtons(t *testing.T) {
 	defer f.Stop()
 
 	f.SetButton(BtnA, true)
-	if !f.buttons[BtnA] {
+	if !f.buttons[0][BtnA] {
 		t.Fatal("BtnA not registered as pressed")
 	}
 	f.SetButton(BtnA, false)
-	if f.buttons[BtnA] {
+	if f.buttons[0][BtnA] {
 		t.Fatal("BtnA still pressed after release")
+	}
+}
+
+// The gate writes player inputs per port; ports must stay independent so a
+// native 2-player game reads each player's buttons without bleed.
+func TestFakeCorePerPortButtons(t *testing.T) {
+	f := NewFakeCore(64, 64)
+	_ = f.Start("", "")
+	defer f.Stop()
+
+	f.SetButtonPort(1, BtnB, true)
+	if !f.buttons[1][BtnB] {
+		t.Fatal("port 1 BtnB not registered")
+	}
+	if f.buttons[0][BtnB] {
+		t.Fatal("port 1 input leaked onto port 0")
+	}
+	f.SetButtonPort(1, BtnB, false)
+	if f.buttons[1][BtnB] {
+		t.Fatal("port 1 BtnB still pressed after release")
 	}
 }
 
