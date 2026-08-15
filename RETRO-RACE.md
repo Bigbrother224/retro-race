@@ -2,6 +2,8 @@
 
 > Everything about the project in one file. Vision, decisions, architecture, glossary, roadmap, risks, and the message to send to the engineer friend.
 
+> **Statut (2026-08-15) :** ce document est la **vision et le plan** du produit. La **MVP réellement implémentée** est la course netplay 2 joueurs (menu arcade → lobby → partie partagée → arbiter → fin dramatique) — voir `docs/adr/0004-mvp-scope-and-done-line.md`. Tout le reste (classements, rating, matchmaking, formats de compétition, comptes, Ghost in-game) est une vision **non implémentée**, pas une réalité du code.
+
 ---
 
 ## Vision

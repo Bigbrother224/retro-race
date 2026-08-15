@@ -1,5 +1,7 @@
 # Retro Race
 
+> **Statut (2026-08-15) :** ce document est le **plan** produit. La **MVP implémentée** se limite à la course netplay 2 joueurs (menu → lobby → partie partagée → arbiter → fin dramatique), voir `docs/adr/0004-mvp-scope-and-done-line.md`. La vision large (classements, rating, matchmaking, défi asynchrone, formats, comptes, Ghost in-game) est un plan, pas du code livré. Ne pas la confondre avec l'état réel du dépôt.
+
 ## Vision
 
 Redonner vie à la communauté des jeux rétro en transformant l'émulation locale en expérience sociale moderne : lancer un jeu en quelques secondes, retrouver ses amis, affronter un inconnu, voir son adversaire comme un Ghost dans le même niveau, progresser dans des classements fiables et participer à des événements communautaires.
