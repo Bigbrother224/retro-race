@@ -107,9 +107,9 @@ Par ordre de valeur, pas par envie. Statut : ✅ fait / ⏳ à faire.
    (skip-if-absent). `simulate`/`aibot`/netplay exigent `--rom/--core` explicites.
 4. ✅ **`save_dir` → données utilisateur.** `rr_set_save_dir`/`rr_set_system_dir` + `savesDir`
    dans `~/Library/Application Support/RetroRace/Saves`.
-5. ⏳ **Découper `App`** en un struct par écran. Grosse refactor : à faire **après** avoir
-   bouclé et testé la course, en passage dédié — pas à mélanger avec les correctifs
-   comportementaux. (Audit : "pas avant".)
+5. ✅ **Découper `App`** — le god-object est scindé : `App` ne garde que le menu/navigation
+   (42 → 12 champs) et délègue le jeu à `gameSession` (32 champs + toutes les méthodes
+   playing/netplay/race/replay/rival/input). Vérifié : build + vet + tests + E2E sync.
 6. ✅ **`aiagent`** : déjà isolé comme outil CLI (`cmd/aibot`, `cmd/simulate`), hors chemin
    produit. Vérifié : rien dans le produit n'importe `aiagent`.
 7. ✅ **md5** : ne garder que sha256. Champ `MD5` et `crypto/md5` retirés.
