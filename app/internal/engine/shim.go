@@ -37,6 +37,21 @@ func NewCore() *Core {
 	return &Core{}
 }
 
+// SetSystemDir configures where the libretro core reads its system files
+// (BIOS, config). SetSaveDir configures where it writes saves. Both must be
+// called before the first Start (the core queries these during init).
+func SetSystemDir(dir string) {
+	cd := C.CString(dir)
+	defer C.free(unsafe.Pointer(cd))
+	C.rr_set_system_dir(cd)
+}
+
+func SetSaveDir(dir string) {
+	cd := C.CString(dir)
+	defer C.free(unsafe.Pointer(cd))
+	C.rr_set_save_dir(cd)
+}
+
 // Start implements Emulator: loads the core dylib and the ROM.
 func (c *Core) Start(romPath, corePath string) error {
 	cpath := C.CString(corePath)

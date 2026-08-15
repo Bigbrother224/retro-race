@@ -1,7 +1,6 @@
 package library
 
 import (
-	"crypto/md5"
 	"crypto/sha256"
 	"encoding/hex"
 	"os"
@@ -24,7 +23,6 @@ type Console struct {
 type Game struct {
 	Name    string // display name (no extension)
 	Path    string
-	MD5     string
 	SHA256  string
 	Size    int64
 	Ext     string
@@ -82,13 +80,11 @@ func (l *Library) Scan(romsDir string) []Console {
 		if err != nil {
 			continue
 		}
-		md5sum := md5.Sum(data)
 		sha := sha256.Sum256(data)
 		name := strings.TrimSuffix(entry.Name(), filepath.Ext(entry.Name()))
 		console.Games = append(console.Games, Game{
 			Name:    strings.ReplaceAll(name, "_", " "),
 			Path:    path,
-			MD5:     hex.EncodeToString(md5sum[:]),
 			SHA256:  hex.EncodeToString(sha[:]),
 			Size:    int64(len(data)),
 			Ext:     ext,

@@ -1,7 +1,10 @@
 package app
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -16,6 +19,27 @@ import (
 	"retrorace/internal/relay"
 	"retrorace/internal/rollback"
 )
+
+// netplayCheckEvery is how often (frames) the shared-game session hashes and
+// compares game state with the peer (~1 s at 60 fps).
+const netplayCheckEvery = 60
+
+// stateHasher is implemented by emulators that can hash their game state for
+// netplay divergence detection (the real libretro Core; FakeCore does not).
+type stateHasher interface {
+	StateHash() uint64
+}
+
+// fileSHA256 hashes a file's bytes, used to prove both sides run the same ROM
+// and core during the netplay handshake (no content is ever transferred).
+func fileSHA256(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:]), nil
+}
 
 // knownPlayers maps normalized game names to their ACTUAL 2-player capability.
 // This is a small, user-extensible Game Profile table: it answers "is this ROM
@@ -324,7 +348,7 @@ func (a *App) applyCorrection(frame int, realPeer uint16, localPort int) bool {
 }
 
 // netCheckDivergence periodically hashes this machine's game state and compares
-// with the peer, ending the session on divergence. Mirrors NetplayApp.
+// with the peer, ending the session on divergence.
 func (a *App) netCheckDivergence() bool {
 	if a.netRendered < a.netLastCheck+netplayCheckEvery {
 		return false

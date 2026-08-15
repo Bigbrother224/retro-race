@@ -53,7 +53,10 @@ func TestScanGroupsByConsole(t *testing.T) {
 // It skips cleanly when the folder is absent or empty, so the suite stays
 // green on checkouts without ROMs (Roms/ is gitignored).
 func TestScanRealRomsDir(t *testing.T) {
-	dir := "/Users/mac/retro-race/app/Roms"
+	dir := findRomsDir()
+	if dir == "" {
+		t.Skip("no repo Roms dir found on this checkout (Roms/ is gitignored)")
+	}
 	entries, err := os.ReadDir(dir)
 	if err != nil || len(entries) == 0 {
 		t.Skipf("Roms dir %s absent or empty", dir)
@@ -62,5 +65,25 @@ func TestScanRealRomsDir(t *testing.T) {
 	consoles := New().Scan(dir)
 	if len(consoles) == 0 {
 		t.Fatalf("expected at least one console with games in %s", dir)
+	}
+}
+
+// findRomsDir walks up from the test working directory looking for the
+// repository's app/Roms folder, so the smoke test is portable across checkouts.
+func findRomsDir() string {
+	dir, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	for {
+		p := filepath.Join(dir, "Roms")
+		if fi, err := os.Stat(p); err == nil && fi.IsDir() {
+			return p
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
 	}
 }

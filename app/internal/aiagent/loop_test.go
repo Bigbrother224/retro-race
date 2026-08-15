@@ -2,6 +2,7 @@ package aiagent
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -21,10 +22,14 @@ func (m *mockVision) Decide(_ []byte, strategy string) (Buttons, error) {
 }
 
 func TestLoopAdvances(t *testing.T) {
+	rom, core := findGameFiles()
+	if rom == "" || core == "" {
+		t.Skip("no repo ROM/core found on this checkout; skipping real-game loop test")
+	}
 	dir := t.TempDir()
 	res, err := Run(Config{
-		ROM:             "/Users/mac/retro-race/app/Roms/Contra (USA).nes",
-		Core:            "/Users/mac/retro-race/cores/libretro-fceumm/fceumm_libretro.dylib",
+		ROM:             rom,
+		Core:            core,
 		Strategy:        "win",
 		Vision:          &mockVision{},
 		DecisionEvery:   30,
@@ -69,4 +74,39 @@ func TestParseButtons(t *testing.T) {
 	if !b.Right {
 		t.Fatal("fenced json not parsed")
 	}
+}
+
+// findGameFiles walks up from the test working directory to the repo root
+// (a `cores` dir next to an `app` dir) and returns the default NES ROM + core
+// for the real-game loop test, or ("","") when not present on this checkout.
+func findGameFiles() (rom, core string) {
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", ""
+	}
+	for {
+		if isDir(filepath.Join(dir, "cores")) && isDir(filepath.Join(dir, "app")) {
+			rom = filepath.Join(dir, "app", "Roms", "Contra (USA).nes")
+			core = filepath.Join(dir, "cores", "libretro-fceumm", "fceumm_libretro.dylib")
+			if fileExists(rom) && fileExists(core) {
+				return rom, core
+			}
+			return "", ""
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", ""
+		}
+		dir = parent
+	}
+}
+
+func isDir(p string) bool {
+	fi, err := os.Stat(p)
+	return err == nil && fi.IsDir()
+}
+
+func fileExists(p string) bool {
+	_, err := os.Stat(p)
+	return err == nil
 }

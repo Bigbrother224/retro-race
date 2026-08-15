@@ -156,49 +156,16 @@ func (a *App) readGamepad(id ebiten.GamepadID, p int) {
 	readGamepadButtons(id, &a.players[p])
 }
 
-// twoPlayers reports whether two distinct human input sources are present:
-// keyboard + at least one gamepad, or two gamepads. Joust only makes sense when
-// two humans can fight for control; with a single player it would just lock the
-// game out.
-func (a *App) twoPlayers() bool {
-	two, _ := playerPlan(a.keyboardActive, len(a.standardGamepads()))
-	return two
-}
-
-// joustOwners returns which logical player drives each emulator port for a
-// given race frame. It is pure so it can be unit-tested without a display or
-// controllers. When active, ownership of both ports swaps every joustEvery
-// frames, so two humans alternate controlling the same character.
-func joustOwners(frame, joustEvery int, active bool) [2]int {
-	owner := [2]int{0, 1}
-	if active && joustEvery > 0 {
-		if (frame/joustEvery)%2 == 1 {
-			owner[0], owner[1] = owner[1], owner[0]
-		}
-	}
-	return owner
-}
-
-// portOwnerForFrame returns which logical player drives each emulator port this
-// frame: [port0] = player, [port1] = player. It is where the Joust gate lives.
-func (a *App) portOwnerForFrame() [2]int {
-	if a.race == nil {
-		return [2]int{0, 1}
-	}
-	return joustOwners(a.race.Frame(), a.joustEvery, a.joust && a.twoPlayers())
-}
-
 // applyGate routes the two logical players' button states to the emulator
-// controller ports through the gate. Local two-gamepad play and remote relayed
-// inputs both land here, so the routing is identical whether the players are
-// side by side or across the world.
+// controller ports (player 0 -> port 0, player 1 -> port 1). Local two-gamepad
+// play and remote relayed inputs both land here, so the routing is identical
+// whether the players are side by side or across the world.
 func (a *App) applyGate() {
 	if a.emu == nil {
 		return
 	}
-	owner := a.portOwnerForFrame()
-	for port := 0; port < len(owner); port++ {
-		st := a.players[owner[port]]
+	for port := 0; port < 2; port++ {
+		st := a.players[port]
 		for b := 0; b < 12; b++ {
 			a.emu.SetButtonPort(port, engine.JoyButton(b), st[b])
 		}

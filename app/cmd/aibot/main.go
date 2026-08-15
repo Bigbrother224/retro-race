@@ -34,8 +34,8 @@ import (
 )
 
 var (
-	rom     = flag.String("rom", "/Users/mac/retro-race/app/Roms/Contra (USA).nes", "ROM path")
-	core    = flag.String("core", "/Users/mac/retro-race/cores/libretro-fceumm/fceumm_libretro.dylib", "core dylib")
+	rom     = flag.String("rom", "", "ROM path (required)")
+	core    = flag.String("core", "", "core dylib path (required)")
 	side    = flag.String("side", "", "run one agent (win|lose); empty = driver")
 	frames  = flag.Int("frames", 1200, "frames per agent game")
 	every   = flag.Int("every", 30, "frames between AI decisions (held in between)")
@@ -66,6 +66,9 @@ func firstNonEmpty(vals ...string) string {
 
 func main() {
 	flag.Parse()
+	if *rom == "" || *core == "" {
+		log.Fatal("--rom and --core are required (the ROM is user-owned content; point the tool at it explicitly)")
+	}
 	if os.Getenv("AIBAI_API_KEY") == "" {
 		log.Fatal("set AIBAI_API_KEY (vision model key)")
 	}

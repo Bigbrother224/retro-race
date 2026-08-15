@@ -78,6 +78,11 @@ void rr_set_input(rr_input input);
 /* Registers the video sink. Pass rr_video with on_frame == NULL to discard frames (silent ghost). */
 void rr_set_video(rr_video video);
 
+/* Sets where the core reads/writes its system and save files. Must be called
+ * before rr_load (the core queries these during init). */
+void rr_set_system_dir(const char *dir);
+void rr_set_save_dir(const char *dir);
+
 /* Save-state support. Returns serialize size. */
 size_t rr_serialize_size(void);
 int rr_serialize(void *data, size_t size);

@@ -85,11 +85,8 @@ type App struct {
 	// Input gate (2 players): routes each player's button state to an emulator
 	// controller port. It is the single place that decides who drives which
 	// port, so local (two gamepads) and remote (relayed inputs) share the same
-	// path. In Joust mode port ownership swaps every joustEvery frames, so two
-	// humans fight for control of the same character.
-	players    [2][12]bool
-	joust      bool
-	joustEvery int
+	// path. player 0 -> port 0, player 1 -> port 1.
+	players [2][12]bool
 	// keyboardActive is latched once a mapped key is pressed during a race. It
 	// tells the gate whether the keyboard is a live player (so keyboard +
 	// one gamepad reads as two players). Reset at each race start.
@@ -113,6 +110,11 @@ type App struct {
 }
 
 func Run() error {
+	// Point the libretro core at the user-data directories before any core
+	// loads: saves persist across runs instead of landing in /tmp.
+	engine.SetSystemDir(savesDir)
+	engine.SetSaveDir(savesDir)
+
 	consoles := library.New().Scan(romsDir)
 	a := &App{consoles: consoles, state: stateTitle, boxarts: map[boxartKey]*ebiten.Image{}, arbiter: arbiter.New(arbiter.DefaultConfig())}
 	a.username = loadProfile()
@@ -423,8 +425,6 @@ func (a *App) launch(con library.Console, g library.Game) error {
 // genuine second emulator instance, not a delayed copy of the player's game.
 func (a *App) startRace() {
 	a.race = newRace(DefaultRaceConfig())
-	a.joust = false
-	a.joustEvery = 240 // 4 s at 60 fps
 	a.keyboardActive = false
 	a.pipImg = nil
 	a.replayImgs = [2]*ebiten.Image{}
@@ -555,10 +555,6 @@ func (a *App) updatePlaying() {
 
 	switch a.race.State() {
 	case racePlaying:
-		// Joust gate: J toggles control-swap between the two players.
-		if inpututil.IsKeyJustPressed(ebiten.KeyJ) {
-			a.joust = !a.joust
-		}
 		state := a.updateGameInput()
 		a.race.RecordInput(state[:])
 		a.emu.Step()
@@ -632,7 +628,7 @@ func (a *App) consumeRival() {
 func (a *App) updateGameInput() [12]bool {
 	a.updatePlayerInputs()
 	a.applyGate()
-	return a.players[a.portOwnerForFrame()[0]]
+	return a.players[0]
 }
 
 func (a *App) stopGame() {

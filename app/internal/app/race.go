@@ -355,15 +355,6 @@ func (a *App) drawRacePanel(screen *ebiten.Image, r *race) {
 	// Progress gauge: clear and readable (two labelled bars).
 	drawRaceGauge(screen, r, a.playerName(), float64(x), float64(w))
 
-	// Joust gate status: only meaningful when two players are connected.
-	if a.twoPlayers() {
-		label := "JOUST : OFF   (J)"
-		if a.joust {
-			label = "JOUST : ON    (J)"
-		}
-		psTextC(screen, label, float64(x)+float64(w)/2, 646, 9, colTextDim)
-	}
-
 	// Exit hint at the bottom of the panel.
 	psTextC(screen, "ESC  MENU", float64(x)+float64(w)/2, 700, 9, colTextDim)
 }

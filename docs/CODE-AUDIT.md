@@ -96,19 +96,23 @@ en rond".
 
 ## Plan de correction priorisé (honnête, pas de promesse en l'air)
 
-Par ordre de valeur, pas par envie :
+Par ordre de valeur, pas par envie. Statut : ✅ fait / ⏳ à faire.
 
-1. **Supprimer `NetplayApp`** et ne garder qu'un seul chemin netplay (le menu). ~768 lignes
-   de duplication en moins, une ambiguïté de moins. Risque faible : les deux font la même
-   chose.
-2. **Tuer le Joust.** Complexité en moins, hors vision produit.
-3. **Remplacer les chemins hardcodés** par les valeurs de `paths.go` (résolution bundle déjà
-   faite) — `main.go`, `simulate`, `aibot`, tests. Rend le repo clonable ailleurs.
-4. **`save_dir` → données utilisateur** (étendre ce que `paths.go` fait déjà aux saves).
-5. **Découper `App`** en un struct par écran. Grosse refactor : à faire **après** avoir
-   bouclé et testé la course, pas avant.
-6. **`aiagent`** : garder seulement comme outil CLI, hors build produit.
-7. **md5** : ne garder que sha256.
+1. ✅ **Supprimer `NetplayApp`** — ne garder qu'un seul chemin netplay (le menu). `netplay.go`
+   supprimé (~768 lignes), branches CLI `--fakeopp/--netbot/--host/--join` retirées, `--relay`
+   conservé (adresse du serveur relay). netlobby.go reste le chemin unique.
+2. ✅ **Tuer le Joust.** `joustOwners`/`portOwnerForFrame`/`twoPlayers`/toggle `J`/label retirés.
+3. ✅ **Remplacer les chemins hardcodés** — 0 occurrence `/Users/mac/retro-race` restante.
+   `paths.go` résout le repo root (walk-up) en dev, fallback temp. Tests portables
+   (skip-if-absent). `simulate`/`aibot`/netplay exigent `--rom/--core` explicites.
+4. ✅ **`save_dir` → données utilisateur.** `rr_set_save_dir`/`rr_set_system_dir` + `savesDir`
+   dans `~/Library/Application Support/RetroRace/Saves`.
+5. ⏳ **Découper `App`** en un struct par écran. Grosse refactor : à faire **après** avoir
+   bouclé et testé la course, en passage dédié — pas à mélanger avec les correctifs
+   comportementaux. (Audit : "pas avant".)
+6. ✅ **`aiagent`** : déjà isolé comme outil CLI (`cmd/aibot`, `cmd/simulate`), hors chemin
+   produit. Vérifié : rien dans le produit n'importe `aiagent`.
+7. ✅ **md5** : ne garder que sha256. Champ `MD5` et `crypto/md5` retirés.
 
 ## Ce que cet audit ne promet pas
 

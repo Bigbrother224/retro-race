@@ -35,8 +35,8 @@ import (
 )
 
 var (
-	rom     = flag.String("rom", "/Users/mac/retro-race/app/Roms/Super Mario Bros. (Europe).nes", "ROM path")
-	core    = flag.String("core", "/Users/mac/retro-race/cores/libretro-fceumm/fceumm_libretro.dylib", "core dylib")
+	rom     = flag.String("rom", "", "ROM path (required)")
+	core    = flag.String("core", "", "core dylib path (required)")
 	frames  = flag.Int("frames", 900, "frames to simulate")
 	out     = flag.String("out", "/tmp/retrorace-sim", "directory for screenshots")
 	every   = flag.Int("every", 90, "save a screenshot every N frames")
@@ -48,6 +48,9 @@ var (
 
 func main() {
 	flag.Parse()
+	if *rom == "" || *core == "" {
+		log.Fatalf("--rom and --core are required (the ROM is user-owned content; point the tool at it explicitly)")
+	}
 	if *side == "" {
 		driver()
 		return

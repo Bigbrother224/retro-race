@@ -109,8 +109,11 @@ static void (*g_unload_game)(void);
 
 static rr_input g_input = {0};
 static rr_video g_video_sink = {0};
-static const char *g_system_dir = "/tmp";
-static const char *g_save_dir = "/tmp";
+/* Directories exposed to the core via GET_SYSTEM/SAVE_DIRECTORY. Settable from
+ * Go before rr_load (a core queries these during init). Fixed buffers so the
+ * strings stay valid for the core's lifetime. */
+static char g_system_dir[1024] = "/tmp";
+static char g_save_dir[1024] = "/tmp";
 static bool g_need_fullpath = false;
 static char g_tmp_game_path[64];
 static bool g_tmp_game_exists = false;
@@ -464,6 +467,22 @@ void rr_set_input(rr_input input) {
 
 void rr_set_video(rr_video video) {
     g_video_sink = video;
+}
+
+/* Sets where the core reads/writes its system and save files. Must be called
+ * before rr_load: the core queries these directories during init. */
+void rr_set_system_dir(const char *dir) {
+    if (dir) {
+        strncpy(g_system_dir, dir, sizeof(g_system_dir) - 1);
+        g_system_dir[sizeof(g_system_dir) - 1] = '\0';
+    }
+}
+
+void rr_set_save_dir(const char *dir) {
+    if (dir) {
+        strncpy(g_save_dir, dir, sizeof(g_save_dir) - 1);
+        g_save_dir[sizeof(g_save_dir) - 1] = '\0';
+    }
 }
 
 size_t rr_serialize_size(void) {
