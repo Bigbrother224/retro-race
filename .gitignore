@@ -1,5 +1,7 @@
 # Build artifacts
 .build/
+dist/
+app/simulate
 *.dylib
 *.o
 *.so
